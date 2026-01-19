@@ -19,79 +19,76 @@ st.markdown("""
     <meta http-equiv="refresh" content="300">
     """, unsafe_allow_html=True)
 
-# --- CSS STYLING (Mobile Friendly & Integrated Headers) ---
+# --- CSS STYLING ---
 st.markdown("""
 <style>
     /* 1. RESET & BACKGROUND */
     .stApp { 
         background-color: #050505; 
-        color: #FFFFFF; 
+        color: #E0E0E0; 
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
-    .block-container { padding-top: 1rem; padding-bottom: 3rem; }
+    
+    /* FIX: Add padding to top so metrics aren't cut off */
+    .block-container { 
+        padding-top: 3rem; 
+        padding-bottom: 3rem; 
+    }
 
-    /* 2. MACRO CARD (The Blue Box) */
+    /* 2. MACRO CARD (Blue Box) */
     .macro-card {
         background: #0a0a0a; 
         border: 2px solid #2962FF; 
-        border-radius: 20px; 
-        padding: 0; /* Padding handled inside to fix layout */
+        border-radius: 15px; 
         margin-bottom: 20px;
-        overflow: hidden; /* Keeps content inside curves */
+        overflow: hidden; 
         box-shadow: 0 4px 20px rgba(41, 98, 255, 0.1);
     }
 
-    /* 3. CARD HEADER (Integrated) */
+    /* 3. CARD HEADER */
     .card-header-box {
-        background: rgba(41, 98, 255, 0.1); /* Slight blue tint */
+        background: rgba(41, 98, 255, 0.15); 
         border-bottom: 1px solid #2962FF;
-        padding: 15px 20px;
+        padding: 12px 20px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        justify-content: space-between;
     }
     .card-title {
-        color: #2962FF;
-        font-weight: 900;
-        font-size: 1.2rem;
+        color: #fff;
+        font-weight: 800;
+        font-size: 1.1rem;
         text-transform: uppercase;
         letter-spacing: 1px;
-        margin: 0;
     }
-    .card-content {
-        padding: 20px;
-    }
+    .card-content { padding: 20px; }
 
-    /* 4. METRIC BOXES (Responsive) */
+    /* 4. METRIC BOXES */
     .metric-box {
         background: #0F0F0F;
         border: 1px solid #333; 
-        border-radius: 15px; 
+        border-radius: 12px; 
         padding: 15px;
         text-align: center;
-        margin-bottom: 10px;
+        min-height: 110px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     .metric-lbl { 
-        font-size: 0.9rem; 
+        font-size: 0.8rem; 
         color: #888; 
         font-weight: 700; 
         text-transform: uppercase; 
-        margin-bottom: 5px;
+        margin-bottom: 8px;
     }
-    .metric-val { 
-        font-size: 1.8rem; /* Smaller for mobile safety */
-        font-weight: 800; 
-        color: #fff; 
-    }
+    .metric-val { font-size: 1.6rem; font-weight: 800; color: #fff; }
 
-    /* 5. ASSET TITLES */
-    h2 { margin: 0; font-size: 1.8rem; font-weight: 800; }
-    
-    /* 6. RING CHART */
+    /* 5. RING CHART */
     .progress-ring {
         position: relative;
-        width: 100px; 
-        height: 100px;
+        width: 110px; 
+        height: 110px;
         border-radius: 50%;
         background: conic-gradient(var(--color) var(--p), #222 0);
         display: flex;
@@ -101,8 +98,8 @@ st.markdown("""
     .progress-ring::after {
         content: attr(data-score);
         position: absolute;
-        width: 84px; 
-        height: 84px;
+        width: 90px; 
+        height: 90px;
         background: #0a0a0a;
         border-radius: 50%;
         display: flex;
@@ -113,45 +110,63 @@ st.markdown("""
         color: #fff;
     }
 
-    /* 7. NEWS STYLING */
+    /* 6. NEWS ITEMS */
     .news-item {
+        padding: 10px 0;
         border-bottom: 1px solid #222;
-        padding-bottom: 12px;
-        margin-bottom: 12px;
     }
     .news-link { 
-        font-size: 1.1rem; 
+        font-size: 1rem; 
         color: #E0E0E0; 
         text-decoration: none; 
         font-weight: 600; 
-        display: block;
-        margin-bottom: 4px;
+        line-height: 1.4;
     }
     .news-link:hover { color: #2962FF; }
-    .news-date { font-size: 0.85rem; color: #666; }
+    .news-meta { font-size: 0.75rem; color: #666; margin-top: 4px; }
 
     /* Key Factors */
-    .factor-item { font-size: 0.95rem; margin-bottom: 6px; color: #ccc; }
-    .factor-lbl { font-weight: bold; color: #fff; }
+    .factor-row { 
+        display: flex; 
+        justify-content: space-between; 
+        margin-bottom: 8px; 
+        border-bottom: 1px solid #222; 
+        padding-bottom: 4px;
+    }
+    .factor-name { color: #aaa; font-size: 0.9rem; }
+    .factor-val { font-weight: bold; font-size: 0.9rem; }
 
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA ENGINE ---
+# --- HEDGE FUND DATA ENGINE ---
 @st.cache_data(ttl=120) 
 def get_data():
-    tickers = ["^TNX", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI"]
+    # ^TNX = 10Y Yield (Growth/Long Term Inflation)
+    # ^IRX = 13 Week Bill (Fed Rate Proxy)
+    # ^T5YIE = 5-Year Breakeven Inflation Rate (The Market's CPI Expectation)
+    # ^VIX = Fear
+    tickers = ["^TNX", "^IRX", "^T5YIE", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI"]
+    
     data = yf.download(tickers, period="5d", interval="1d", progress=False)
+    
+    # Cleaning MultiIndex
     try:
         if isinstance(data.columns, pd.MultiIndex):
             data = data.xs('Close', axis=1, level=0)
     except: pass
+
     res = {}
     for t in tickers:
         try:
             s = data[t].dropna()
-            change = ((s.iloc[-1] - s.iloc[-2])/s.iloc[-2])*100
-            res[t] = {"price": s.iloc[-1], "change": change}
+            if len(s) > 1:
+                latest = s.iloc[-1]
+                prev = s.iloc[-2]
+                change = ((latest - prev) / prev) * 100
+                res[t] = {"price": latest, "change": change}
+            else:
+                res[t] = {"price": 0.0, "change": 0.0}
         except:
             res[t] = {"price": 0.0, "change": 0.0}
     return res
@@ -160,110 +175,162 @@ def get_data():
 def get_news():
     feed_url = "https://www.cnbc.com/id/10000664/device/rss/rss.html"
     feed = feedparser.parse(feed_url)
-    return feed.entries[:4]
+    return feed.entries[:5]
 
 market = get_data()
 news_data = get_news()
 
-# --- 1. TOP METRICS ---
+# --- 1. TOP METRICS (THE DASHBOARD) ---
+# We display 4 Key "Hedge Fund" Metrics
 c1, c2, c3, c4 = st.columns(4)
 
-def big_metric(col, label, key, inv=False, is_pct=False):
-    d = market[key]
-    val_fmt = f"{d['price']:.2f}%" if is_pct else f"{d['price']:.2f}"
+def metric_card(col, title, key, invert_color=False, is_pct=False):
+    d = market.get(key, {'price':0, 'change':0})
+    val = f"{d['price']:.2f}%" if is_pct else f"{d['price']:.2f}"
     chg = d['change']
-    color = "#00E676" if (inv and chg < 0) or (not inv and chg > 0) else "#FF1744"
+    
+    # Logic: If 'invert_color' is True, RISING is RED (Bad). e.g. Inflation/VIX.
+    if invert_color:
+        color = "#00E676" if chg < 0 else "#FF1744"
+    else:
+        color = "#00E676" if chg > 0 else "#FF1744"
+        
     icon = "▼" if chg < 0 else "▲"
     
     col.markdown(f"""
     <div class="metric-box">
-        <div class="metric-lbl">{label}</div>
-        <div class="metric-val">{val_fmt}</div>
-        <div style="color: {color}; font-size: 1rem; font-weight: bold; margin-top:5px;">
-            {icon} {abs(chg):.2f}%
-        </div>
+        <div class="metric-lbl">{title}</div>
+        <div class="metric-val">{val}</div>
+        <div style="color:{color}; font-weight:bold; font-size:0.9rem; margin-top:5px;">{icon} {abs(chg):.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
-big_metric(c1, "US 10Y YIELD", "^TNX", inv=True, is_pct=True)
-big_metric(c2, "VIX (FEAR)", "^VIX", inv=True)
-big_metric(c3, "DOLLAR DXY", "DX-Y.NYB", inv=True)
-big_metric(c4, "GBP CABLE", "GBPUSD=X", inv=False)
+# 1. Inflation Expectations (The "Real" CPI)
+metric_card(c1, "MARKET INFLATION (5Y)", "^T5YIE", invert_color=True, is_pct=True)
+# 2. Cost of Money (Fed Proxy)
+metric_card(c2, "FED RATE PROXY (13W)", "^IRX", invert_color=True, is_pct=True)
+# 3. Fear
+metric_card(c3, "RISK SENTIMENT (VIX)", "^VIX", invert_color=True)
+# 4. Dollar
+metric_card(c4, "DOLLAR INDEX (DXY)", "DX-Y.NYB", invert_color=True)
 
 st.markdown("<div style='height: 20px'></div>", unsafe_allow_html=True)
 
 # --- 2. ASSET ANALYSIS ---
 col_us, col_gj = st.columns(2)
 
-# === US30 ===
+# === US30 (DOW) LOGIC ===
 with col_us:
     us_score = 50
-    tnx_c = market['^TNX']['change']
-    vix_p = market['^VIX']['price']
     
-    if tnx_c < -0.5: us_score += 25
-    elif tnx_c > 0.5: us_score -= 25
-    if vix_p < 16: us_score += 25
-    elif vix_p > 22: us_score -= 25
+    # Data Points
+    inf_exp = market['^T5YIE']['change'] # Inflation Expectations
+    fed_proxy = market['^IRX']['change'] # Short Term Rates
+    vix = market['^VIX']['price']
+    
+    # Logic: 
+    # If Market expects MORE inflation -> Bad for stocks (Rates stay high)
+    if inf_exp > 0.5: us_score -= 20
+    elif inf_exp < -0.5: us_score += 20
+    
+    # If Short term rates rising -> Bad for liquidity
+    if fed_proxy > 1.0: us_score -= 20
+    elif fed_proxy < -1.0: us_score += 20
+    
+    # VIX Filter
+    if vix < 16: us_score += 10
+    elif vix > 20: us_score -= 20
+    
     us_score = max(0, min(100, us_score))
     
     u_color = "#00E676" if us_score > 60 else "#FF1744" if us_score < 40 else "#FFCC00"
     u_bias = "BULLISH" if us_score > 60 else "BEARISH" if us_score < 40 else "NEUTRAL"
-    
+
     st.markdown(f"""
     <div class="macro-card">
         <div class="card-header-box">
-            <span style="font-size:1.5rem;">🇺🇸</span>
-            <span class="card-title">US30 (DOW)</span>
+            <div class="card-title">🇺🇸 US30 (DOW JONES)</div>
+            <div style="font-size:0.8rem; color:#888;">EQUITY MACRO</div>
         </div>
         <div class="card-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <div>
                     <div style="font-size:2rem; font-weight:900; color:{u_color};">{u_bias}</div>
-                    <div style="color:#666; font-size:0.8rem;">Macro Tendency</div>
+                    <div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
                 </div>
                 <div class="progress-ring" style="--p: {us_score}%; --color: {u_color};" data-score="{us_score}%"></div>
             </div>
-            <div>
-                <div class="factor-item"><span class="factor-lbl">Yields ({tnx_c:+.2f}%):</span> <span style="color:{'#00E676' if tnx_c < 0 else '#FF1744'}">{'Bullish (Dropping)' if tnx_c < 0 else 'Bearish (Rising)'}</span></div>
-                <div class="factor-item"><span class="factor-lbl">VIX ({vix_p:.2f}):</span> <span style="color:{'#00E676' if vix_p < 20 else '#FF1744'}">{'Safe' if vix_p < 20 else 'High Risk'}</span></div>
+            
+            <div style="background:#111; padding:15px; border-radius:10px;">
+                <div class="factor-row">
+                    <span class="factor-name">Inflation Exp (Breakevens)</span>
+                    <span class="factor-val" style="color:{'#FF1744' if inf_exp > 0 else '#00E676'}">{inf_exp:+.2f}%</span>
+                </div>
+                <div class="factor-row">
+                    <span class="factor-name">Fed Rate Proxy (13W Bill)</span>
+                    <span class="factor-val" style="color:{'#FF1744' if fed_proxy > 0 else '#00E676'}">{fed_proxy:+.2f}%</span>
+                </div>
+                 <div class="factor-row" style="border-bottom:none;">
+                    <span class="factor-name">Risk Premium (VIX)</span>
+                    <span class="factor-val" style="color:{'#FF1744' if vix > 20 else '#00E676'}">{vix:.2f}</span>
+                </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# === GBPJPY ===
+# === GBPJPY LOGIC ===
 with col_gj:
     gj_score = 50
-    gbp_c = market['GBPUSD=X']['change']
-    jpy_c = market['JPY=X']['change']
     
-    if gbp_c > 0.1: gj_score += 20
-    elif gbp_c < -0.1: gj_score -= 20
-    if jpy_c > 0.1: gj_score += 30
-    elif jpy_c < -0.1: gj_score -= 30
+    # Data Points
+    # Since we lack live CB rate feeds, we use the Market's pricing of them:
+    # 1. Yield Spread Proxy: GBPUSD Strength vs JPY Strength
+    gbp_strength = market['GBPUSD=X']['change']
+    yen_weakness = market['JPY=X']['change'] # If Positive, USD>JPY (Yen Weak)
+    
+    # Logic:
+    # GBP Strength = Yields in UK likely holding/rising vs US
+    if gbp_strength > 0.1: gj_score += 20
+    elif gbp_strength < -0.1: gj_score -= 20
+    
+    # Yen Weakness = BOJ Dovish / Carry Trade ON
+    if yen_weakness > 0.1: gj_score += 30
+    elif yen_weakness < -0.1: gj_score -= 30
+    
     gj_score = max(0, min(100, gj_score))
     
     g_color = "#00E676" if gj_score > 60 else "#FF1744" if gj_score < 40 else "#FFCC00"
-    g_bias = "BUY / LONG" if gj_score > 60 else "SELL / SHORT" if gj_score < 40 else "RANGING"
+    g_bias = "LONG (BUY)" if gj_score > 60 else "SHORT (SELL)" if gj_score < 40 else "RANGING"
 
     st.markdown(f"""
     <div class="macro-card">
         <div class="card-header-box">
-            <span style="font-size:1.5rem;">💱</span>
-            <span class="card-title">GBPJPY</span>
+            <div class="card-title">💱 GBPJPY (THE BEAST)</div>
+            <div style="font-size:0.8rem; color:#888;">YIELD SPREAD MODEL</div>
         </div>
         <div class="card-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <div>
                     <div style="font-size:2rem; font-weight:900; color:{g_color};">{g_bias}</div>
-                    <div style="color:#666; font-size:0.8rem;">Macro Tendency</div>
+                    <div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
                 </div>
                 <div class="progress-ring" style="--p: {gj_score}%; --color: {g_color};" data-score="{gj_score}%"></div>
             </div>
-            <div>
-                <div class="factor-item"><span class="factor-lbl">GBP ({gbp_c:+.2f}%):</span> <span style="color:{'#00E676' if gbp_c > 0 else '#FF1744'}">{'Strong' if gbp_c > 0 else 'Weak'}</span></div>
-                <div class="factor-item"><span class="factor-lbl">Yen Weakness ({jpy_c:+.2f}%):</span> <span style="color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Carry On' if jpy_c > 0 else 'Unwind Risk'}</span></div>
+            
+            <div style="background:#111; padding:15px; border-radius:10px;">
+                <div class="factor-row">
+                    <span class="factor-name">GBP Strength (Rate Proxy)</span>
+                    <span class="factor-val" style="color:{'#00E676' if gbp_strength > 0 else '#FF1744'}">{gbp_strength:+.2f}%</span>
+                </div>
+                <div class="factor-row">
+                    <span class="factor-name">Yen Weakness (Carry Flow)</span>
+                    <span class="factor-val" style="color:{'#00E676' if yen_weakness > 0 else '#FF1744'}">{yen_weakness:+.2f}%</span>
+                </div>
+                 <div class="factor-row" style="border-bottom:none;">
+                    <span class="factor-name">Global Risk (Correlation)</span>
+                    <span class="factor-val" style="color:{'#FF1744' if vix > 20 else '#00E676'}">{'Risk Off' if vix > 20 else 'Risk On'}</span>
+                </div>
             </div>
         </div>
     </div>
@@ -273,54 +340,46 @@ with col_gj:
 c_news, c_cal = st.columns([1, 1])
 
 with c_news:
-    # Build HTML for news items
-    news_html = ""
+    st.markdown("""
+    <div class="macro-card" style="height: 520px; overflow-y: auto;">
+        <div class="card-header-box">
+            <div class="card-title">📰 MACRO WIRE</div>
+        </div>
+        <div class="card-content">
+    """, unsafe_allow_html=True)
+    
     if news_data:
         for item in news_data:
             try:
-                dt = time.strftime("%A, %d %b • %H:%M", item.published_parsed)
-            except: dt = item.published[:16]
-            
-            news_html += f"""
+                dt_obj = item.published_parsed
+                date_str = time.strftime("%d %b %H:%M", dt_obj)
+            except:
+                date_str = "Latest"
+                
+            st.markdown(f"""
             <div class="news-item">
                 <a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
-                <span class="news-date">🕒 {dt}</span>
+                <div class="news-meta">🕒 {date_str} • Source: CNBC</div>
             </div>
-            """
+            """, unsafe_allow_html=True)
     else:
-        news_html = "<div style='color:#666'>No news available.</div>"
+        st.write("No news feeds available.")
 
-    st.markdown(f"""
-    <div class="macro-card" style="min-height: 500px;">
-        <div class="card-header-box">
-            <span>📰</span>
-            <span class="card-title">TOP MACRO HEADLINES</span>
-        </div>
-        <div class="card-content">
-            {news_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 with c_cal:
-    # Dynamic Day Display
-    today_str = datetime.datetime.now().strftime("%A, %d %B")
+    # Dynamic Day Date
+    today_date = datetime.datetime.now().strftime("%A, %d %B")
     
     st.markdown(f"""
-    <div class="macro-card" style="min-height: 500px;">
-        <div class="card-header-box" style="justify-content: space-between;">
-            <div style="display:flex; gap:10px; align-items:center;">
-                <span>📅</span>
-                <span class="card-title">FTMO RADAR</span>
-            </div>
-            <div style="font-size:0.9rem; color:#fff; background:#2962FF; padding:2px 8px; border-radius:4px;">
-                TODAY: {today_str}
-            </div>
+    <div class="macro-card" style="height: 520px; display: flex; flex-direction: column;">
+        <div class="card-header-box">
+            <div class="card-title">📅 FTMO RADAR</div>
+            <div style="background:#2962FF; color:white; padding:2px 8px; border-radius:4px; font-size:0.8rem;">{today_date}</div>
         </div>
-        <div style="height: 440px;"> 
+        <div style="flex-grow: 1; padding: 0;">
     """, unsafe_allow_html=True)
     
-    # Widget
     components.html("""
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>

@@ -74,12 +74,36 @@ st.markdown("""
     }
     .card-body { padding: 20px; }
 
-    /* 4. NEWS & SENTIMENT STYLES */
-    .news-item { padding: 12px 0; border-bottom: 1px solid #222; }
-    .news-link { color: #fff; text-decoration: none; font-weight: 600; font-size: 1.05rem; display: block; margin-bottom: 4px; }
+    /* 4. NEWS STYLES (Fixed Alignment) */
+    .news-item { 
+        padding: 12px 0; 
+        border-bottom: 1px solid #222; 
+        display: flex; 
+        flex-direction: column; 
+        gap: 5px; 
+    }
+    .news-link { 
+        color: #fff; 
+        text-decoration: none; 
+        font-weight: 600; 
+        font-size: 1rem; 
+        line-height: 1.4;
+    }
     .news-link:hover { color: #2962FF; }
-    .news-meta { font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
-    .sentiment-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+    
+    .news-meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .news-date { font-size: 0.8rem; color: #666; }
+    .sentiment-badge { 
+        font-size: 0.75rem; 
+        padding: 3px 8px; 
+        border-radius: 4px; 
+        font-weight: 800; 
+        text-transform: uppercase;
+    }
 
     /* 5. FACTORS */
     .factor-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; font-size: 0.9rem; }
@@ -135,6 +159,7 @@ def get_data():
         except:
             res[t] = {"price": 0.0, "change": 0.0}
 
+    # FAILSAFE
     if res.get("^T5YIE", {}).get("price", 0) < 0.1:
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
 
@@ -143,7 +168,6 @@ def get_data():
 # --- AI NEWS ENGINE (STRICT FILTER) ---
 @st.cache_data(ttl=600)
 def get_news_analysis():
-    # We use a broader feed but will filter aggressively
     feed_url = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" 
     
     try:
@@ -151,7 +175,6 @@ def get_news_analysis():
         analyzer = SentimentIntensityAnalyzer()
         
         relevant_news = []
-        total_score = 0
         
         # KEYWORDS TO KEEP (The Signal)
         keep_words = ["fed", "powell", "rate", "inflation", "cpi", "ppi", "gdp", "treasury", "yield", "policy", "central bank", "fomc", "jobless", "employment", "recession", "stimulus", "bonds"]
@@ -166,7 +189,7 @@ def get_news_analysis():
             if any(bad in text_content for bad in block_words):
                 continue
                 
-            # 2. Check for Keep words (Must have at least one)
+            # 2. Check for Keep words
             if not any(good in text_content for good in keep_words):
                 continue
             
@@ -187,9 +210,8 @@ def get_news_analysis():
                 "score": compound
             })
             
-            if len(relevant_news) >= 6: break # Only need top 6 relevant
+            if len(relevant_news) >= 6: break 
         
-        # Calculate Avg Sentiment of RELEVANT news only
         if relevant_news:
             avg_score = sum(item['score'] for item in relevant_news) / len(relevant_news)
         else:
@@ -216,7 +238,6 @@ def render_metric(col, title, key, invert=False, is_pct=False):
         if chg < 0: color = "#FF1744"
     arrow = "▲" if chg > 0 else "▼"
     
-    # Linear HTML construction (No indentation bug)
     html = f"""<div class="metric-box"><div class="metric-lbl">{title}</div><div class="metric-val">{val}</div><div style="color:{color}; font-weight:bold; font-size:0.9rem; margin-top:5px;">{arrow} {abs(chg):.2f}%</div></div>"""
     col.markdown(html, unsafe_allow_html=True)
 
@@ -242,7 +263,7 @@ with col_us:
     if rates > 1.0: us_score -= 15
     elif rates < -1.0: us_score += 15
     
-    # Sector Rotation (The Hedge Fund Signal)
+    # Sector Rotation
     tech_chg = market.get('XLK', {'change':0})['change']
     util_chg = market.get('XLU', {'change':0})['change']
     risk_on = tech_chg > util_chg
@@ -260,7 +281,6 @@ with col_us:
     rot_txt = "Risk On (Tech > Utils)" if risk_on else "Defensive (Utils > Tech)"
     rot_col = "#00E676" if risk_on else "#FF1744"
 
-    # HTML Construction (One line per variable to avoid indentation bug)
     html_us = f"""<div class="html-card"><div class="card-header"><span>🇺🇸 US30 (Dow Jones)</span><span style="font-size:0.8rem; opacity:0.7">SMART MONEY MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{u_color};">{u_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Verdict</div></div><div class="ring-container" style="--ring-color:{u_color}; --ring-pct:{us_score}%;"><div class="ring-inner">{us_score}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;"><div class="factor-row"><span style="color:#aaa;">Sector Flow</span><span style="font-weight:bold; color:{rot_col}">{rot_txt}</span></div><div class="factor-row"><span style="color:#aaa;">Fed Rates (13W Bill)</span><span style="font-weight:bold; color:{'#FF1744' if rates > 0 else '#00E676'}">{rates:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">AI News Sentiment</span><span style="font-weight:bold; color:{'#00E676' if sentiment_score > 0 else '#FF1744'}">{sentiment_score:.2f} Score</span></div></div></div></div>"""
     st.markdown(html_us, unsafe_allow_html=True)
 
@@ -293,9 +313,17 @@ with c_news:
         for item in news_data:
             try: dt = time.strftime("%d %b %H:%M", item['published_parsed'])
             except: dt = "Recent"
-            items_html += f"""<div class="news-item"><a href="{item['link']}" target="_blank" class="news-link">{item['title']}</a><div class="news-meta"><span>🕒 {dt}</span><span class="sentiment-badge" style="background:{item['color']}; color:#000;">AI: {item['sentiment']}</span></div></div>"""
+            items_html += f"""
+            <div class="news-item">
+                <a href="{item['link']}" target="_blank" class="news-link">{item['title']}</a>
+                <div class="news-meta-row">
+                    <span class="news-date">🕒 {dt}</span>
+                    <span class="sentiment-badge" style="background:{item['color']}; color:#000;">AI: {item['sentiment']}</span>
+                </div>
+            </div>
+            """
     else:
-        items_html = "<div style='color:#666; padding:10px;'>No relevant Fed/Macro news found.</div>"
+        items_html = "<div style='color:#666; padding:10px;'>No relevant Fed/Macro news found (Filtered).</div>"
 
     html_news = f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Fed & Policy Wire</span><span style="font-size:0.8rem; opacity:0.7">FILTERED FEED</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{items_html}</div></div>"""
     st.markdown(html_news, unsafe_allow_html=True)

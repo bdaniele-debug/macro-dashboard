@@ -28,7 +28,6 @@ st.markdown("""
         color: #E0E0E0; 
         font-family: 'Helvetica Neue', sans-serif;
     }
-    
     .block-container { padding-top: 2rem; padding-bottom: 3rem; }
 
     /* 2. METRIC CARDS */
@@ -74,7 +73,7 @@ st.markdown("""
     }
     .card-body { padding: 20px; }
 
-    /* 4. NEWS & SENTIMENT STYLES */
+    /* 4. NEWS STYLES */
     .news-item { 
         padding: 12px 0; 
         border-bottom: 1px solid #222; 
@@ -122,7 +121,7 @@ st.markdown("""
         font-weight: 800; color: white; font-size: 1.2rem;
     }
 
-    /* 7. CUSTOM IFRAME BORDER */
+    /* 7. IFRAME BORDER */
     iframe[title="streamlit_components_v1.components.html"] {
         border: 2px solid #2962FF !important;
         border-top: none !important;
@@ -159,48 +158,34 @@ def get_data():
         except:
             res[t] = {"price": 0.0, "change": 0.0}
 
-    # FAILSAFE
     if res.get("^T5YIE", {}).get("price", 0) < 0.1:
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
 
     return res
 
-# --- AI NEWS ENGINE (GLOBAL MACRO FILTER) ---
+# --- DUAL-CORE AI SENTIMENT ENGINE (SEPARATED) ---
 @st.cache_data(ttl=600)
 def get_news_analysis():
-    # Primary Feed: CNBC Economy
     feed_url = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" 
     
     try:
         feed = feedparser.parse(feed_url)
         analyzer = SentimentIntensityAnalyzer()
         
-        relevant_news = []
+        us_news = []
+        gj_news = []
         
-        # KEYWORDS TO KEEP (GLOBAL MACRO)
-        # Added: BOE, BOJ, YEN, POUND, GILT, UK, JAPAN
-        keep_words = [
-            "fed", "powell", "rate", "inflation", "cpi", "ppi", "gdp", "treasury", "yield", 
-            "central bank", "fomc", "jobless", "recession", "bonds",
-            "boe", "bailey", "bank of england", "gilt", "uk", "britain", "pound",
-            "boj", "ueda", "bank of japan", "yen", "jgb", "japan"
-        ]
+        # KEYWORDS SEPARATION
+        us_keywords = ["fed", "powell", "inflation", "cpi", "treasury", "yield", "recession", "stocks", "dow", "s&p", "nasdaq", "gdp", "fomc"]
+        gj_keywords = ["boe", "bailey", "bank of england", "uk", "britain", "pound", "gilt", "boj", "ueda", "bank of japan", "yen", "japan", "jgb", "forex"]
         
-        # KEYWORDS TO DELETE
-        block_words = ["bitcoin", "crypto", "ether", "nft", "meme", "disney", "netflix", "movie", "marvel", "stablecoin", "tether", "sport"]
+        block_words = ["bitcoin", "crypto", "nft", "disney", "movie", "sport"]
 
         for entry in feed.entries:
-            text_content = (entry.title + " " + entry.get('summary', '')).lower()
+            text = (entry.title + " " + entry.get('summary', '')).lower()
             
-            # 1. Check for Block words
-            if any(bad in text_content for bad in block_words):
-                continue
-                
-            # 2. Check for Keep words
-            if not any(good in text_content for good in keep_words):
-                continue
+            if any(bad in text for bad in block_words): continue
             
-            # 3. Analyze Sentiment
             vs = analyzer.polarity_scores(entry.title)
             compound = vs['compound']
             
@@ -208,28 +193,32 @@ def get_news_analysis():
             elif compound <= -0.05: s_label, s_color = "NEG", "#FF1744"
             else: s_label, s_color = "NEU", "#888"
             
-            relevant_news.append({
+            news_obj = {
                 "title": entry.title,
                 "link": entry.link,
                 "published": entry.published,
                 "sentiment": s_label,
                 "color": s_color,
                 "score": compound
-            })
+            }
             
-            if len(relevant_news) >= 8: break # Increased to 8 to catch international news
+            # Bucket the news
+            is_us = any(k in text for k in us_keywords)
+            is_gj = any(k in text for k in gj_keywords)
+            
+            if is_us: us_news.append(news_obj)
+            if is_gj: gj_news.append(news_obj)
         
-        if relevant_news:
-            avg_score = sum(item['score'] for item in relevant_news) / len(relevant_news)
-        else:
-            avg_score = 0
+        # Calculate Scores
+        us_score = sum(n['score'] for n in us_news)/len(us_news) if us_news else 0
+        gj_score = sum(n['score'] for n in gj_news)/len(gj_news) if gj_news else 0
             
-        return relevant_news, avg_score
+        return us_news, gj_news, us_score, gj_score
     except:
-        return [], 0
+        return [], [], 0, 0
 
 market = get_data()
-news_data, sentiment_score = get_news_analysis()
+us_news, gj_news, us_sentiment, gj_sentiment = get_news_analysis()
 
 # --- TOP METRICS ---
 c1, c2, c3, c4 = st.columns(4)
@@ -245,7 +234,6 @@ def render_metric(col, title, key, invert=False, is_pct=False):
         if chg < 0: color = "#FF1744"
     arrow = "▲" if chg > 0 else "▼"
     
-    # Clean HTML construction
     html = f"""<div class="metric-box"><div class="metric-lbl">{title}</div><div class="metric-val">{val}</div><div style="color:{color}; font-weight:bold; font-size:0.9rem; margin-top:5px;">{arrow} {abs(chg):.2f}%</div></div>"""
     col.markdown(html, unsafe_allow_html=True)
 
@@ -259,29 +247,26 @@ st.markdown("<div style='margin-bottom: 25px'></div>", unsafe_allow_html=True)
 # --- ASSET CARDS ---
 col_us, col_gj = st.columns(2)
 
+# === US30 (DOW) ===
 with col_us:
     us_score = 50
-    # Macro Factors
     inf = market.get('^T5YIE', {'change':0})['change']
     rates = market.get('^IRX', {'change':0})['change']
-    vix_p = market.get('^VIX', {'price':0})['price']
-    
-    if inf > 0.5: us_score -= 15
-    elif inf < -0.5: us_score += 15
-    if rates > 1.0: us_score -= 15
-    elif rates < -1.0: us_score += 15
-    
-    # Sector Rotation
     tech_chg = market.get('XLK', {'change':0})['change']
     util_chg = market.get('XLU', {'change':0})['change']
     risk_on = tech_chg > util_chg
     
+    # 1. Yield Logic
+    if inf > 0.5: us_score -= 15
+    elif inf < -0.5: us_score += 15
+    if rates > 1.0: us_score -= 15
+    elif rates < -1.0: us_score += 15
+    # 2. Flow Logic
     if risk_on: us_score += 20
     else: us_score -= 20
-    
-    # AI Sentiment
-    if sentiment_score > 0.05: us_score += 10
-    elif sentiment_score < -0.05: us_score -= 10
+    # 3. US Specific Sentiment
+    if us_sentiment > 0.05: us_score += 10
+    elif us_sentiment < -0.05: us_score -= 10
 
     us_score = max(0, min(100, us_score))
     u_color = "#00E676" if us_score > 60 else "#FF1744" if us_score < 40 else "#FFCC00"
@@ -289,64 +274,60 @@ with col_us:
     rot_txt = "Risk On (Tech > Utils)" if risk_on else "Defensive (Utils > Tech)"
     rot_col = "#00E676" if risk_on else "#FF1744"
 
-    # HTML Construction
-    html_us = f"""<div class="html-card"><div class="card-header"><span>🇺🇸 US30 (Dow Jones)</span><span style="font-size:0.8rem; opacity:0.7">SMART MONEY MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{u_color};">{u_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Verdict</div></div><div class="ring-container" style="--ring-color:{u_color}; --ring-pct:{us_score}%;"><div class="ring-inner">{us_score}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;"><div class="factor-row"><span style="color:#aaa;">Sector Flow</span><span style="font-weight:bold; color:{rot_col}">{rot_txt}</span></div><div class="factor-row"><span style="color:#aaa;">Fed Rates (13W Bill)</span><span style="font-weight:bold; color:{'#FF1744' if rates > 0 else '#00E676'}">{rates:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">AI News Sentiment</span><span style="font-weight:bold; color:{'#00E676' if sentiment_score > 0 else '#FF1744'}">{sentiment_score:.2f} Score</span></div></div></div></div>"""
+    html_us = f"""<div class="html-card"><div class="card-header"><span>🇺🇸 US30 (Dow Jones)</span><span style="font-size:0.8rem; opacity:0.7">US MACRO ONLY</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{u_color};">{u_txt}</div><div style="color:#666; font-size:0.8rem;">Independent Score</div></div><div class="ring-container" style="--ring-color:{u_color}; --ring-pct:{us_score}%;"><div class="ring-inner">{us_score}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;"><div class="factor-row"><span style="color:#aaa;">Sector Flow</span><span style="font-weight:bold; color:{rot_col}">{rot_txt}</span></div><div class="factor-row"><span style="color:#aaa;">Fed Rates (13W Bill)</span><span style="font-weight:bold; color:{'#FF1744' if rates > 0 else '#00E676'}">{rates:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">US News Sentiment</span><span style="font-weight:bold; color:{'#00E676' if us_sentiment > 0 else '#FF1744'}">{us_sentiment:.2f} Score</span></div></div></div></div>"""
     st.markdown(html_us, unsafe_allow_html=True)
 
+# === GBPJPY ===
 with col_gj:
     gj_score = 50
     gbp = market.get('GBPUSD=X', {'change':0})['change']
     jpy = market.get('JPY=X', {'change':0})['change']
     oil = market.get('CL=F', {'change':0})['change']
     
+    # 1. FX Logic
     if gbp > 0.1: gj_score += 20
     elif gbp < -0.1: gj_score -= 20
     if jpy > 0.1: gj_score += 25
     elif jpy < -0.1: gj_score -= 25
+    # 2. Oil Logic
     if oil > 0.5: gj_score += 15
     elif oil < -0.5: gj_score -= 15
+    # 3. UK/JP Specific Sentiment
+    if gj_sentiment > 0.05: gj_score += 10
+    elif gj_sentiment < -0.05: gj_score -= 10
     
     gj_score = max(0, min(100, gj_score))
     g_color = "#00E676" if gj_score > 60 else "#FF1744" if gj_score < 40 else "#FFCC00"
     g_txt = "LONG (BUY)" if gj_score > 60 else "SHORT (SELL)" if gj_score < 40 else "RANGING"
 
-    html_gj = f"""<div class="html-card"><div class="card-header"><span>💱 GBPJPY (The Beast)</span><span style="font-size:0.8rem; opacity:0.7">OIL & YIELD MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{g_color};">{g_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Verdict</div></div><div class="ring-container" style="--ring-color:{g_color}; --ring-pct:{gj_score}%;"><div class="ring-inner">{gj_score}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;"><div class="factor-row"><span style="color:#aaa;">Yen Weakness (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy > 0 else '#FF1744'}">{jpy:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">Oil Impact (Japan Imp.)</span><span style="font-weight:bold; color:{'#00E676' if oil > 0 else '#FF1744'}">{oil:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">GBP Strength</span><span style="font-weight:bold; color:{'#00E676' if gbp > 0 else '#FF1744'}">{gbp:+.2f}%</span></div></div></div></div>"""
+    html_gj = f"""<div class="html-card"><div class="card-header"><span>💱 GBPJPY (The Beast)</span><span style="font-size:0.8rem; opacity:0.7">YIELD & OIL MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{g_color};">{g_txt}</div><div style="color:#666; font-size:0.8rem;">Independent Score</div></div><div class="ring-container" style="--ring-color:{g_color}; --ring-pct:{gj_score}%;"><div class="ring-inner">{gj_score}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;"><div class="factor-row"><span style="color:#aaa;">Yen Weakness (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy > 0 else '#FF1744'}">{jpy:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">Oil Impact (Japan Imp.)</span><span style="font-weight:bold; color:{'#00E676' if oil > 0 else '#FF1744'}">{oil:+.2f}%</span></div><div class="factor-row"><span style="color:#aaa;">UK/JP News Sentiment</span><span style="font-weight:bold; color:{'#00E676' if gj_sentiment > 0 else '#FF1744'}">{gj_sentiment:.2f} Score</span></div></div></div></div>"""
     st.markdown(html_gj, unsafe_allow_html=True)
 
-# --- NEWS & CALENDAR (FIXED RENDERING) ---
+# --- SEPARATED NEWS ---
 c_news, c_cal = st.columns(2)
 
 with c_news:
-    # 1. BUILD HTML STRING MANUALLY (NO F-STRINGS WITH INDENTATION)
-    news_inner_html = ""
+    # We combine both lists for the feed, but label them
+    news_feed_html = ""
+    combined_news = us_news + gj_news
+    # Sort by date (newest first) could be done here, but feed is usually sorted.
     
-    if news_data:
-        for item in news_data:
+    if combined_news:
+        for item in combined_news[:6]: # Show top 6 combined
             try: dt = time.strftime("%d %b %H:%M", item['published_parsed'])
             except: dt = "Recent"
             
-            # Simple string concatenation to avoid indentation bugs
-            news_inner_html += f"<div class='news-item'>"
-            news_inner_html += f"<a href='{item['link']}' target='_blank' class='news-link'>{item['title']}</a>"
-            news_inner_html += f"<div class='news-meta-row'>"
-            news_inner_html += f"<span class='news-date'>🕒 {dt}</span>"
-            news_inner_html += f"<span class='sentiment-badge' style='background:{item['color']}; color:#000;'>AI: {item['sentiment']}</span>"
-            news_inner_html += f"</div></div>"
-    else:
-        news_inner_html = "<div style='color:#666; padding:10px;'>No relevant Global Macro news found.</div>"
+            # Badge logic to show if it impacted US or GJ
+            # (Simplified check for display)
+            tag = "US" if item in us_news else "FX"
+            tag_color = "#2962FF" if tag == "US" else "#FFCC00"
+            tag_text_col = "#FFF" if tag == "US" else "#000"
 
-    # 2. RENDER CARD
-    st.markdown(f"""
-    <div class="html-card" style="height: 600px;">
-        <div class="card-header">
-            <span>📰 Global Macro Wire</span>
-            <span style="font-size:0.8rem; opacity:0.7">US • UK • JP FILTER</span>
-        </div>
-        <div class="card-body" style="overflow-y:auto; height:540px;">
-            {news_inner_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+            news_feed_html += f"<div class='news-item'><a href='{item['link']}' target='_blank' class='news-link'>{item['title']}</a><div class='news-meta-row'><span class='news-date'>🕒 {dt}</span><div style='display:flex; gap:5px;'><span class='sentiment-badge' style='background:{tag_color}; color:{tag_text_col};'>{tag}</span><span class='sentiment-badge' style='background:{item['color']}; color:#000;'>AI: {item['sentiment']}</span></div></div></div>"
+    else:
+        news_feed_html = "<div style='color:#666; padding:10px;'>No relevant news found.</div>"
+
+    st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">SEPARATED STREAMS</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_feed_html}</div></div>""", unsafe_allow_html=True)
 
 with c_cal:
     today_str = datetime.datetime.now().strftime("%A, %d %B")

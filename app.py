@@ -54,7 +54,7 @@ st.markdown("""
     }
     .metric-val { font-size: 1.8rem; font-weight: 800; color: #fff; }
 
-    /* 3. MACRO CARDS (HTML ONLY) */
+    /* 3. HTML CARDS (Used for News & Asset Models) */
     .html-card {
         border: 2px solid #2962FF;
         border-radius: 15px;
@@ -81,17 +81,11 @@ st.markdown("""
     .news-link:hover { color: #2962FF; }
     .news-date { font-size: 0.8rem; color: #666; }
 
-    /* 5. FTMO CONTAINER STYLING */
-    /* We style the native Streamlit container to look like a card */
-    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
-        /* This targets nested vertical blocks which we use for the FTMO card */
-    }
-    
-    /* ASSET FACTORS */
+    /* 5. ASSET FACTORS */
     .factor-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; font-size: 0.9rem; }
     .factor-row:last-child { border-bottom: none; }
     
-    /* RING CHART */
+    /* 6. RING CHART */
     .ring-container {
         position: relative; width: 100px; height: 100px;
         border-radius: 50%;
@@ -103,6 +97,17 @@ st.markdown("""
         display: flex; align-items: center; justify-content: center;
         font-weight: 800; color: white; font-size: 1.2rem;
     }
+
+    /* 7. CUSTOM IFRAME BORDER FOR FTMO CALENDAR */
+    /* This connects the calendar widget to the custom header we build */
+    iframe[title="streamlit_components_v1.components.html"] {
+        border: 2px solid #2962FF !important;
+        border-top: none !important;
+        border-bottom-left-radius: 15px !important;
+        border-bottom-right-radius: 15px !important;
+        background-color: #0a0a0a;
+        margin-top: -5px; /* Pull it up to touch the header */
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,7 +116,6 @@ st.markdown("""
 def get_data():
     tickers = ["^TNX", "^IRX", "^T5YIE", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI"]
     try:
-        # Request data
         data = yf.download(tickers, period="5d", interval="1d", progress=False)
         if isinstance(data.columns, pd.MultiIndex):
             data = data.xs('Close', axis=1, level=0)
@@ -166,16 +170,14 @@ def render_metric(col, title, key, invert=False, is_pct=False):
         
     arrow = "▲" if chg > 0 else "▼"
     
-    # Using textwrap.dedent to prevent Markdown code block errors
-    html = textwrap.dedent(f"""
-    <div class="metric-box">
-        <div class="metric-lbl">{title}</div>
-        <div class="metric-val">{val}</div>
-        <div style="color:{color}; font-weight:bold; font-size:0.9rem; margin-top:5px;">
-            {arrow} {abs(chg):.2f}%
-        </div>
-    </div>
-    """)
+    # Force no indentation to fix Markdown bug
+    html = f"""
+<div class="metric-box">
+<div class="metric-lbl">{title}</div>
+<div class="metric-val">{val}</div>
+<div style="color:{color}; font-weight:bold; font-size:0.9rem; margin-top:5px;">{arrow} {abs(chg):.2f}%</div>
+</div>
+"""
     col.markdown(html, unsafe_allow_html=True)
 
 render_metric(c1, "MKT INFLATION (5Y)", "^T5YIE", invert=True, is_pct=True)
@@ -206,39 +208,39 @@ with col_us:
     u_color = "#00E676" if us_score > 60 else "#FF1744" if us_score < 40 else "#FFCC00"
     u_txt = "BULLISH" if us_score > 60 else "BEARISH" if us_score < 40 else "NEUTRAL"
     
-    html_us = textwrap.dedent(f"""
-    <div class="html-card">
-        <div class="card-header">
-            <span>🇺🇸 US30 (Dow Jones)</span>
-            <span style="font-size:0.8rem; opacity:0.7">EQUITY MODEL</span>
-        </div>
-        <div class="card-body">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <div>
-                    <div style="font-size:2rem; font-weight:900; color:{u_color};">{u_txt}</div>
-                    <div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
-                </div>
-                <div class="ring-container" style="--ring-color:{u_color}; --ring-pct:{us_score}%;">
-                    <div class="ring-inner">{us_score}%</div>
-                </div>
-            </div>
-            <div style="background:#111; padding:15px; border-radius:8px;">
-                <div class="factor-row">
-                    <span style="color:#aaa;">Inflation Breakevens</span>
-                    <span style="font-weight:bold; color:{'#FF1744' if inf > 0 else '#00E676'}">{inf:+.2f}%</span>
-                </div>
-                <div class="factor-row">
-                    <span style="color:#aaa;">Fed Rate Proxy (13W)</span>
-                    <span style="font-weight:bold; color:{'#FF1744' if rates > 0 else '#00E676'}">{rates:+.2f}%</span>
-                </div>
-                <div class="factor-row">
-                    <span style="color:#aaa;">Risk Premium (VIX)</span>
-                    <span style="font-weight:bold; color:{'#FF1744' if vix_p > 20 else '#00E676'}">{vix_p:.2f}</span>
-                </div>
-            </div>
-        </div>
-    </div>
-    """)
+    html_us = f"""
+<div class="html-card">
+<div class="card-header">
+<span>🇺🇸 US30 (Dow Jones)</span>
+<span style="font-size:0.8rem; opacity:0.7">EQUITY MODEL</span>
+</div>
+<div class="card-body">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+<div>
+<div style="font-size:2rem; font-weight:900; color:{u_color};">{u_txt}</div>
+<div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
+</div>
+<div class="ring-container" style="--ring-color:{u_color}; --ring-pct:{us_score}%;">
+<div class="ring-inner">{us_score}%</div>
+</div>
+</div>
+<div style="background:#111; padding:15px; border-radius:8px;">
+<div class="factor-row">
+<span style="color:#aaa;">Inflation Breakevens</span>
+<span style="font-weight:bold; color:{'#FF1744' if inf > 0 else '#00E676'}">{inf:+.2f}%</span>
+</div>
+<div class="factor-row">
+<span style="color:#aaa;">Fed Rate Proxy (13W)</span>
+<span style="font-weight:bold; color:{'#FF1744' if rates > 0 else '#00E676'}">{rates:+.2f}%</span>
+</div>
+<div class="factor-row">
+<span style="color:#aaa;">Risk Premium (VIX)</span>
+<span style="font-weight:bold; color:{'#FF1744' if vix_p > 20 else '#00E676'}">{vix_p:.2f}</span>
+</div>
+</div>
+</div>
+</div>
+"""
     st.markdown(html_us, unsafe_allow_html=True)
 
 # === GBPJPY ===
@@ -255,118 +257,93 @@ with col_gj:
     g_color = "#00E676" if gj_score > 60 else "#FF1744" if gj_score < 40 else "#FFCC00"
     g_txt = "LONG (BUY)" if gj_score > 60 else "SHORT (SELL)" if gj_score < 40 else "RANGING"
 
-    html_gj = textwrap.dedent(f"""
-    <div class="html-card">
-        <div class="card-header">
-            <span>💱 GBPJPY (The Beast)</span>
-            <span style="font-size:0.8rem; opacity:0.7">YIELD SPREAD MODEL</span>
-        </div>
-        <div class="card-body">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <div>
-                    <div style="font-size:2rem; font-weight:900; color:{g_color};">{g_txt}</div>
-                    <div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
-                </div>
-                <div class="ring-container" style="--ring-color:{g_color}; --ring-pct:{gj_score}%;">
-                    <div class="ring-inner">{gj_score}%</div>
-                </div>
-            </div>
-            <div style="background:#111; padding:15px; border-radius:8px;">
-                <div class="factor-row">
-                    <span style="color:#aaa;">GBP Strength</span>
-                    <span style="font-weight:bold; color:{'#00E676' if gbp > 0 else '#FF1744'}">{gbp:+.2f}%</span>
-                </div>
-                <div class="factor-row">
-                    <span style="color:#aaa;">Yen Weakness (Carry)</span>
-                    <span style="font-weight:bold; color:{'#00E676' if jpy > 0 else '#FF1744'}">{jpy:+.2f}%</span>
-                </div>
-            </div>
-        </div>
-    </div>
-    """)
+    html_gj = f"""
+<div class="html-card">
+<div class="card-header">
+<span>💱 GBPJPY (The Beast)</span>
+<span style="font-size:0.8rem; opacity:0.7">YIELD SPREAD MODEL</span>
+</div>
+<div class="card-body">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+<div>
+<div style="font-size:2rem; font-weight:900; color:{g_color};">{g_txt}</div>
+<div style="color:#666; font-size:0.8rem;">Algorithmic Verdict</div>
+</div>
+<div class="ring-container" style="--ring-color:{g_color}; --ring-pct:{gj_score}%;">
+<div class="ring-inner">{gj_score}%</div>
+</div>
+</div>
+<div style="background:#111; padding:15px; border-radius:8px;">
+<div class="factor-row">
+<span style="color:#aaa;">GBP Strength</span>
+<span style="font-weight:bold; color:{'#00E676' if gbp > 0 else '#FF1744'}">{gbp:+.2f}%</span>
+</div>
+<div class="factor-row">
+<span style="color:#aaa;">Yen Weakness (Carry)</span>
+<span style="font-weight:bold; color:{'#00E676' if jpy > 0 else '#FF1744'}">{jpy:+.2f}%</span>
+</div>
+</div>
+</div>
+</div>
+"""
     st.markdown(html_gj, unsafe_allow_html=True)
 
-# --- NEWS & CALENDAR (FIXED LAYOUT) ---
+# --- NEWS & CALENDAR (FIXED) ---
 c_news, c_cal = st.columns(2)
 
 with c_news:
-    # Construct News HTML
+    # Build the HTML list first, strictly no indentation
     items_html = ""
     if news_data:
         for item in news_data:
             try: dt = time.strftime("%a, %d %b %H:%M", item.published_parsed)
             except: dt = "Recent"
-            items_html += f"""
-            <div class="news-item">
-                <a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
-                <span class="news-date">{dt}</span>
-            </div>
-            """
+            items_html += f"""<div class="news-item">
+<a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
+<span class="news-date">{dt}</span>
+</div>"""
     else:
         items_html = "<div style='color:#666'>No news available right now.</div>"
 
-    html_news = textwrap.dedent(f"""
-    <div class="html-card" style="height: 600px;">
-        <div class="card-header">📰 Macro Headlines</div>
-        <div class="card-body" style="overflow-y:auto; height:540px;">
-            {items_html}
-        </div>
-    </div>
-    """)
+    html_news = f"""
+<div class="html-card" style="height: 600px;">
+<div class="card-header">📰 Macro Headlines</div>
+<div class="card-body" style="overflow-y:auto; height:540px;">
+{items_html}
+</div>
+</div>
+"""
     st.markdown(html_news, unsafe_allow_html=True)
 
 with c_cal:
     # 1. HEADER (Styled HTML)
     today_str = datetime.datetime.now().strftime("%A, %d %B")
     
-    # We create a fake "Card Header" that visually matches the others
-    st.markdown(textwrap.dedent(f"""
-    <div style="
-        border: 2px solid #2962FF; 
-        border-bottom: none;
-        border-top-left-radius: 15px; 
-        border-top-right-radius: 15px; 
-        background-color: #0a0a0a;
-        margin-bottom: 0px;
-    ">
-        <div class="card-header" style="border-bottom: 1px solid #2962FF;">
-            <span>📅 FTMO Radar</span>
-            <span style="font-size:0.8rem; background:#2962FF; padding:2px 8px; border-radius:4px;">{today_str}</span>
-        </div>
-    </div>
-    """), unsafe_allow_html=True)
+    st.markdown(f"""
+<div style="border: 2px solid #2962FF; border-bottom: none; border-top-left-radius: 15px; border-top-right-radius: 15px; background-color: #0a0a0a; margin-bottom: 0px;">
+<div class="card-header" style="border-bottom: 1px solid #2962FF;">
+<span>📅 FTMO Radar</span>
+<span style="font-size:0.8rem; background:#2962FF; padding:2px 8px; border-radius:4px;">{today_str}</span>
+</div>
+</div>
+""", unsafe_allow_html=True)
     
     # 2. BODY (The Widget)
-    # We wrap this in a container that has borders on Left, Right, Bottom
-    with st.container():
-        # Inject CSS to style this specific container to look like the bottom of the card
-        # This is a trick to put the widget 'inside' the card visually
-        st.markdown("""
-        <style>
-        div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] > div[data-testid="element-container"] iframe {
-            border: 2px solid #2962FF;
-            border-top: none;
-            border-bottom-left-radius: 15px;
-            border-bottom-right-radius: 15px;
-            background-color: #0a0a0a;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        components.html("""
-        <div class="tradingview-widget-container" style="background-color: #0a0a0a;">
-          <div class="tradingview-widget-container__widget"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-          {
-          "width": "100%",
-          "height": "535",
-          "colorTheme": "dark",
-          "isTransparent": true,
-          "locale": "en",
-          "importanceFilter": "1",
-          "currencyFilter": "USD,GBP,JPY",
-          "timeZone": "Europe/London"
-        }
-          </script>
-        </div>
-        """, height=535)
+    # The CSS at the top (iframe selector) handles the border and connection to the header
+    components.html("""
+    <div class="tradingview-widget-container" style="background-color: #0a0a0a;">
+      <div class="tradingview-widget-container__widget"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+      {
+      "width": "100%",
+      "height": "535",
+      "colorTheme": "dark",
+      "isTransparent": true,
+      "locale": "en",
+      "importanceFilter": "1",
+      "currencyFilter": "USD,GBP,JPY",
+      "timeZone": "Europe/London"
+    }
+      </script>
+    </div>
+    """, height=535)

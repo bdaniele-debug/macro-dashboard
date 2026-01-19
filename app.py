@@ -1,313 +1,256 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
 import feedparser
 import datetime
+import streamlit.components.v1 as components
 
-# --- PAGE CONFIGURATION ---
+# --- CONFIGURAZIONE PAGINA (Compact Mode) ---
 st.set_page_config(
-    page_title="Macro Command Center",
+    page_title="Macro Dashboard",
     layout="wide",
-    page_icon="🦅",
+    page_icon="⚡",
     initial_sidebar_state="collapsed"
 )
 
-# --- PROFESSIONAL STYLING (CSS) ---
+# --- CSS MODERNO E COMPATTO ---
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp { background-color: #0E1117; }
+    /* Riduciamo i margini generali per vedere tutto in una schermata */
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
     
-    /* Cards */
+    /* Sfondo scuro e pulito */
+    .stApp { background-color: #0E1117; color: #E0E0E0; }
+    
+    /* Card Stile Glass */
     .macro-card {
-        background-color: #1E1E24;
-        border: 1px solid #333;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        height: 100%;
     }
     
-    /* Text Typography */
-    h1, h2, h3 { color: #FFFFFF; font-family: 'Helvetica Neue', sans-serif; font-weight: 700; }
-    p, li, span { color: #E0E0E0; font-family: 'Helvetica Neue', sans-serif; }
+    /* Titoli */
+    h3 { font-size: 1rem !important; margin-bottom: 5px !important; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
+    h2 { font-size: 1.2rem !important; font-weight: 700; color: #fff; margin: 0; }
     
-    /* Highlight Colors */
-    .bull-text { color: #00E676; font-weight: bold; }
-    .bear-text { color: #FF1744; font-weight: bold; }
-    .neutral-text { color: #FFCC00; font-weight: bold; }
-    
-    /* News Feed styling */
-    .news-item {
-        border-bottom: 1px solid #333;
-        padding: 10px 0;
+    /* Metriche Piccole */
+    .metric-box {
+        text-align: center;
+        background: #0d1117;
+        border-radius: 6px;
+        padding: 8px;
+        border: 1px solid #21262d;
     }
-    .news-title { color: #4da6ff; font-weight: bold; text-decoration: none; font-size: 1.1rem; }
-    .news-meta { color: #888; font-size: 0.8rem; }
+    .metric-val { font-size: 1.1rem; font-weight: bold; color: #fff; }
+    .metric-lbl { font-size: 0.7rem; color: #8b949e; }
+    
+    /* INDICATORE PERCENTUALE A CERCHIO (CSS PURO) */
+    .progress-ring {
+        position: relative;
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        background: conic-gradient(var(--color) var(--p), #21262d 0);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+    }
+    .progress-ring::after {
+        content: attr(data-score);
+        position: absolute;
+        width: 86px;
+        height: 86px;
+        background: #161b22;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.2rem;
+        color: #fff;
+    }
+
+    /* News Compatte */
+    .news-row {
+        padding: 8px 0;
+        border-bottom: 1px solid #21262d;
+        font-size: 0.85rem;
+    }
+    .news-row:last-child { border-bottom: none; }
+    .news-link { color: #58a6ff; text-decoration: none; font-weight: 500; }
+    .news-link:hover { text-decoration: underline; }
+    .news-time { font-size: 0.7rem; color: #8b949e; display: block; margin-top: 2px; }
+    
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA ENGINE ---
-@st.cache_data(ttl=120) # Cache for 2 mins
-def get_market_data():
-    # Tickers: US10Y, US02Y, VIX, DXY, GBPUSD, USDJPY, Dow Jones
-    tickers = ["^TNX", "^IRX", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI"]
-    
-    # Download data
+# --- MOTORE DATI ---
+@st.cache_data(ttl=120) 
+def get_data():
+    tickers = ["^TNX", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI"]
     data = yf.download(tickers, period="5d", interval="1d", progress=False)
     
-    # Handle MultiIndex if necessary (Yfinance update fix)
+    # Fix per MultiIndex di yfinance
     try:
         if isinstance(data.columns, pd.MultiIndex):
             data = data.xs('Close', axis=1, level=0)
-    except:
-        pass
+    except: pass
 
-    results = {}
-    
-    for ticker in tickers:
+    res = {}
+    for t in tickers:
         try:
-            # Get series for specific ticker
-            series = data[ticker].dropna()
-            latest = series.iloc[-1]
-            prev = series.iloc[-2]
-            change_pct = ((latest - prev) / prev) * 100
-            
-            results[ticker] = {
-                "price": latest,
-                "change": change_pct
-            }
-        except Exception as e:
-            results[ticker] = {"price": 0.0, "change": 0.0}
-            
-    return results
-
-@st.cache_data(ttl=600) # Cache news for 10 mins
-def get_macro_news():
-    # RSS Feeds for reliable Macro News
-    feeds = [
-        "https://www.investing.com/rss/news_25.rss", # Forex News
-        "https://www.cnbc.com/id/10000664/device/rss/rss.html" # CNBC Economy/Fed
-    ]
-    
-    news_items = []
-    for url in feeds:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:5]: # Top 5 from each
-                news_items.append({
-                    "title": entry.title,
-                    "link": entry.link,
-                    "published": entry.published
-                })
+            s = data[t].dropna()
+            res[t] = {"price": s.iloc[-1], "change": ((s.iloc[-1] - s.iloc[-2])/s.iloc[-2])*100}
         except:
-            continue
-    return news_items
+            res[t] = {"price": 0.0, "change": 0.0}
+    return res
 
-# Load Data
-market = get_market_data()
-news = get_macro_news()
+@st.cache_data(ttl=600)
+def get_news():
+    # Prendo solo le top 3 notizie da CNBC Economy
+    feed = feedparser.parse("https://www.cnbc.com/id/10000664/device/rss/rss.html")
+    return feed.entries[:3]
 
-# --- HELPER: GAUGE CHART ---
-def create_gauge(value, title, min_val, max_val, thresholds):
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = value,
-        title = {'text': title, 'font': {'size': 24, 'color': "white"}},
-        number = {'font': {'color': "white"}},
-        gauge = {
-            'axis': {'range': [min_val, max_val], 'tickwidth': 1, 'tickcolor': "white"},
-            'bar': {'color': "white"},
-            'bgcolor': "black",
-            'steps': [
-                {'range': [min_val, thresholds[0]], 'color': "#FF1744"}, # Red
-                {'range': [thresholds[0], thresholds[1]], 'color': "#FFCC00"}, # Yellow
-                {'range': [thresholds[1], max_val], 'color': "#00E676"} # Green
-            ],
-            'threshold': {
-                'line': {'color': "white", 'width': 4},
-                'thickness': 0.75,
-                'value': value
-            }
-        }
-    ))
-    fig.update_layout(paper_bgcolor="#1E1E24", font={'color': "white", 'family': "Arial"}, height=250, margin=dict(l=20,r=20,t=50,b=20))
-    return fig
+market = get_data()
+news_data = get_news()
 
-# --- HEADER ---
-c_head_1, c_head_2 = st.columns([3, 1])
-with c_head_1:
-    st.markdown("# 🦅 MACRO COMMAND CENTER")
-    st.markdown(f"**Live Intelligence for US30 & GBPJPY** | Updated: {datetime.datetime.now().strftime('%H:%M UTC')}")
-with c_head_2:
-    # Quick Status
-    if market['^VIX']['price'] < 15:
-        st.success("✅ MARKET CALM")
-    elif market['^VIX']['price'] < 22:
-        st.warning("⚠️ CAUTION")
-    else:
-        st.error("🚨 HIGH VOLATILITY")
-
-# --- ROW 1: KEY MACRO METRICS ---
-st.markdown("### 🔑 THE MACRO MATRIX (The raw data driving price)")
-m1, m2, m3, m4 = st.columns(4)
-
-def metric_card(col, label, ticker_key, inverse=False, suffix=""):
-    data = market[ticker_key]
-    val = data['price']
-    chg = data['change']
+# --- HEADER COMPATTO ---
+c1, c2, c3, c4 = st.columns(4)
+def mini_metric(col, label, key, inv=False, is_pct=False):
+    d = market[key]
+    val = f"{d['price']:.2f}%" if is_pct else f"{d['price']:.2f}"
+    chg = d['change']
+    color = "#3fb950" if (chg < 0 and inv) or (chg > 0 and not inv) else "#f85149"
+    icon = "▼" if chg < 0 else "▲"
     
-    # Color Logic
-    if inverse:
-        color = "normal" if chg < 0 else "off" # Red if up (bad)
-    else:
-        color = "normal" if chg > 0 else "off" # Green if up (good)
-        
-    col.metric(label, f"{val:.2f}{suffix}", f"{chg:.2f}%", delta_color="inverse" if inverse else "normal")
+    col.markdown(f"""
+    <div class="metric-box">
+        <div class="metric-lbl">{label}</div>
+        <div class="metric-val">{val}</div>
+        <div style="color: {color}; font-size: 0.8rem; font-weight: bold;">{icon} {abs(chg):.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-metric_card(m1, "US 10Y YIELD", "^TNX", inverse=True, suffix="%")
-metric_card(m2, "US DOLLAR (DXY)", "DX-Y.NYB", inverse=True)
-metric_card(m3, "FEAR INDEX (VIX)", "^VIX", inverse=True)
-metric_card(m4, "GBP STRENGTH (Cable)", "GBPUSD=X", inverse=False)
+mini_metric(c1, "US 10Y YIELD", "^TNX", inv=True, is_pct=True)
+mini_metric(c2, "VIX (FEAR)", "^VIX", inv=True)
+mini_metric(c3, "DOLLAR DXY", "DX-Y.NYB", inv=True)
+mini_metric(c4, "GBP STRENGTH", "GBPUSD=X", inv=False)
 
-st.markdown("---")
+st.markdown("<div style='margin-bottom: 10px'></div>", unsafe_allow_html=True)
 
-# --- ROW 2: ASSET ANALYSIS ---
-col_us, col_gj = st.columns(2)
+# --- BLOCCO CENTRALE: ANALISI ASSET ---
+col_main_1, col_main_2 = st.columns(2)
 
-# === US30 LOGIC ===
-with col_us:
-    st.markdown('<div class="macro-card">', unsafe_allow_html=True)
-    st.markdown("## 🇺🇸 US30 (DOW JONES)")
-    
-    # Calculate Score
+# === US30 ===
+with col_main_1:
+    # Calcolo Score US30
     us_score = 50
-    reasons = []
+    tnx_c = market['^TNX']['change']
+    vix_p = market['^VIX']['price']
     
-    # 1. Yields
-    if market['^TNX']['change'] < -0.5:
-        us_score += 20
-        reasons.append("Yields are dropping significantly. <b>Bullish for Tech/Industry.</b>")
-    elif market['^TNX']['change'] > 0.5:
-        us_score -= 20
-        reasons.append("Yields are surging. <b>Pressure on valuations.</b>")
-        
-    # 2. VIX
-    if market['^VIX']['price'] < 16:
-        us_score += 15
-        reasons.append("VIX is low. Risk-on sentiment is active.")
-    elif market['^VIX']['price'] > 22:
-        us_score -= 20
-        reasons.append("VIX is spiking. Investors are fleeing equities.")
-        
-    # 3. DXY
-    if market['DX-Y.NYB']['change'] > 0.3:
-        us_score -= 10
-        reasons.append("Strong Dollar is hurting US exports.")
-        
-    # Chart
-    fig_us = create_gauge(us_score, "Macro Sentiment", 0, 100, [40, 60])
-    st.plotly_chart(fig_us, use_container_width=True)
+    if tnx_c < -0.5: us_score += 25 # Yields giù = Bene
+    elif tnx_c > 0.5: us_score -= 25 # Yields su = Male
     
-    # Text Analysis
-    st.markdown("#### 📝 MACRO CONTEXT")
-    for r in reasons:
-        st.markdown(f"- {r}", unsafe_allow_html=True)
-        
-    if not reasons:
-        st.markdown("- No major macro divergences. Market is likely technical today.")
-        
-    st.markdown('</div>', unsafe_allow_html=True)
+    if vix_p < 16: us_score += 25 # Calma = Bene
+    elif vix_p > 22: us_score -= 25 # Paura = Male
+    
+    us_score = max(0, min(100, us_score))
+    
+    # Colore Cerchio
+    u_color = "#3fb950" if us_score > 60 else "#f85149" if us_score < 40 else "#e3b341"
+    u_bias = "BULLISH" if us_score > 60 else "BEARISH" if us_score < 40 else "NEUTRAL"
+    
+    st.markdown(f"""
+    <div class="macro-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px;">
+            <div>
+                <h2>US30 (DOW)</h2>
+                <div style="color:{u_color}; font-weight:bold; letter-spacing:1px;">{u_bias}</div>
+            </div>
+            <div class="progress-ring" style="--p: {us_score}%; --color: {u_color};" data-score="{us_score}%"></div>
+        </div>
+        <div style="font-size: 0.85rem; color: #8b949e; line-height: 1.4;">
+            <b>Fattori Chiave:</b><br>
+            • Yields: <span style="color:{'#3fb950' if tnx_c < 0 else '#f85149'}">{tnx_c:+.2f}%</span> (Correlazione Inversa)<br>
+            • VIX: {vix_p:.2f} (Soglia rischio: 20.00)
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# === GBPJPY LOGIC ===
-with col_gj:
-    st.markdown('<div class="macro-card">', unsafe_allow_html=True)
-    st.markdown("## 🇬🇧/🇯🇵 GBPJPY (THE BEAST)")
-    
-    # Calculate Score
+# === GBPJPY ===
+with col_main_2:
+    # Calcolo Score GJ
     gj_score = 50
-    gj_reasons = []
+    gbp_c = market['GBPUSD=X']['change']
+    jpy_c = market['JPY=X']['change'] # JPY=X UP significa Yen debole (Buono per GJ)
     
-    # 1. GBP Strength
-    gbp_chg = market['GBPUSD=X']['change']
-    if gbp_chg > 0.2:
-        gj_score += 15
-        gj_reasons.append("Pound Sterling is showing strength across the board.")
-    elif gbp_chg < -0.2:
-        gj_score -= 15
-        gj_reasons.append("Pound is weak today.")
-
-    # 2. JPY Weakness (USDJPY)
-    # Note: If JPY=X (USD/JPY) goes UP, Yen is WEAK.
-    jpy_chg = market['JPY=X']['change'] 
+    if gbp_c > 0.1: gj_score += 20
+    elif gbp_c < -0.1: gj_score -= 20
     
-    if jpy_chg > 0.2:
-        gj_score += 20
-        gj_reasons.append("Yen is weakening (USDJPY Up). <b>Carry trade is ON.</b>")
-    elif jpy_chg < -0.2:
-        gj_score -= 20
-        gj_reasons.append("Yen is strengthening (Intervention risk or Safe Haven flow).")
-        
-    # 3. Risk Sentiment linkage
-    if market['^DJI']['change'] < -0.5:
-        gj_score -= 10
-        gj_reasons.append("Stock market sell-off is dragging GJ down (Correlation).")
-
-    # Chart
-    fig_gj = create_gauge(gj_score, "Macro Sentiment", 0, 100, [40, 60])
-    st.plotly_chart(fig_gj, use_container_width=True)
+    if jpy_c > 0.1: gj_score += 30 # Carry Trade ON
+    elif jpy_c < -0.1: gj_score -= 30 # Yen Safety ON
     
-    # Text Analysis
-    st.markdown("#### 📝 MACRO CONTEXT")
-    for r in gj_reasons:
-        st.markdown(f"- {r}", unsafe_allow_html=True)
-        
-    if gj_score > 60:
-        st.success("BIAS: LOOK FOR BUYS (Carry Trade Active)")
-    elif gj_score < 40:
-        st.error("BIAS: LOOK FOR SELLS (Risk Off / Yen Strength)")
-    else:
-        st.warning("BIAS: MIXED / RANGING")
+    gj_score = max(0, min(100, gj_score))
+    
+    g_color = "#3fb950" if gj_score > 60 else "#f85149" if gj_score < 40 else "#e3b341"
+    g_bias = "BUY / LONG" if gj_score > 60 else "SELL / SHORT" if gj_score < 40 else "RANGING"
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="macro-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px;">
+            <div>
+                <h2>GBPJPY</h2>
+                <div style="color:{g_color}; font-weight:bold; letter-spacing:1px;">{g_bias}</div>
+            </div>
+            <div class="progress-ring" style="--p: {gj_score}%; --color: {g_color};" data-score="{gj_score}%"></div>
+        </div>
+        <div style="font-size: 0.85rem; color: #8b949e; line-height: 1.4;">
+            <b>Fattori Chiave:</b><br>
+            • GBP Strength: <span style="color:{'#3fb950' if gbp_c > 0 else '#f85149'}">{gbp_c:+.2f}%</span><br>
+            • Carry Trade (Yen Debole): <span style="color:{'#3fb950' if jpy_c > 0 else '#f85149'}">{jpy_c:+.2f}%</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-
-# --- ROW 3: NEWS & CALENDAR ---
+# --- COLONNE INFERIORI: NEWS & CALENDARIO ---
 c_news, c_cal = st.columns([1, 1])
 
 with c_news:
-    st.markdown("### 📰 LATEST MACRO HEADLINES (Fed/Global)")
-    st.markdown('<div class="macro-card">', unsafe_allow_html=True)
-    
-    if news:
-        for item in news:
-            st.markdown(f"""
-            <div class="news-item">
-                <a href="{item['link']}" target="_blank" class="news-title">{item['title']}</a><br>
-                <span class="news-meta">{item['published']}</span>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.write("No news fetched. Check connection.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("### 📰 TOP MACRO NEWS")
+    content = ""
+    for item in news_data:
+        published = item.published if 'published' in item else "Just now"
+        # Accorcia la data
+        published = published[:16] 
+        content += f"""
+        <div class="news-row">
+            <a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
+            <span class="news-time">{published}</span>
+        </div>
+        """
+    st.markdown(f'<div class="macro-card">{content}</div>', unsafe_allow_html=True)
 
 with c_cal:
-    st.markdown("### 📅 FTMO RED FOLDER RADAR (High Impact)")
-    # Calendar Widget
+    st.markdown("### 📅 FTMO RED FOLDER (UK TIME)")
+    # Calendar Widget Ridimensionato
     components.html("""
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
       {
       "width": "100%",
-      "height": "400",
+      "height": "180",
       "colorTheme": "dark",
-      "isTransparent": false,
+      "isTransparent": true,
       "locale": "en",
       "importanceFilter": "1",
-      "currencyFilter": "USD,GBP,JPY"
+      "currencyFilter": "USD,GBP,JPY",
+      "timeZone": "Europe/London"
     }
       </script>
     </div>
-    """, height=400)
+    """, height=200)

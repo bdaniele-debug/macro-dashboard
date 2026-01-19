@@ -1,186 +1,169 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import streamlit.components.v1 as components
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Macro Auto-Pilot", layout="wide", page_icon="⚡")
+# --- CONFIGURAZIONE PAGINA ---
+st.set_page_config(page_title="Macro Sentinel", layout="wide", page_icon="⚡")
 
-# --- CUSTOM CSS (Cyberpunk Look) ---
+# --- CSS PERSONALIZZATO (Stile Dashboard Finanziaria) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #0e1117; color: #fafafa; }
-    .metric-card {
+    .stApp { background-color: #0e1117; }
+    .main-card {
         background-color: #1e1e24;
         border: 1px solid #333;
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 10px;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
     }
-    .bull { color: #00ff41; font-weight: bold; font-size: 1.2rem; }
-    .bear { color: #ff0055; font-weight: bold; font-size: 1.2rem; }
-    .neutral { color: #ffcc00; font-weight: bold; font-size: 1.2rem; }
+    .factor-good { color: #00E676; font-weight: bold; }
+    .factor-bad { color: #FF1744; font-weight: bold; }
+    .factor-neu { color: #FFCC00; font-weight: bold; }
     h1, h2, h3 { color: #ffffff; }
+    .big-verdict { font-size: 2rem; font-weight: 800; text-transform: uppercase; text-align: center; margin: 10px 0; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. DATA FETCHING FUNCTION ---
-@st.cache_data(ttl=300) # Cache data for 5 mins to save speed
-def get_macro_data():
-    # Tickers: US30(DJI), Guppy, 10Y Yield, VIX, DXY
-    tickers = ["^DJI", "GBPJPY=X", "^TNX", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X"]
+# --- 1. RECUPERO DATI MACRO ---
+@st.cache_data(ttl=300) # Aggiorna ogni 5 min
+def get_data():
+    # Tickers: US 10Y Yield, VIX, GBPUSD, USDJPY
+    tickers = ["^TNX", "^VIX", "GBPUSD=X", "JPY=X"]
     data = yf.download(tickers, period="5d", interval="1d")
     
-    # Get latest closes
+    # Prendi l'ultima chiusura e la variazione %
     latest = data['Close'].iloc[-1]
     prev = data['Close'].iloc[-2]
-    
     changes = ((latest - prev) / prev) * 100
     
     return latest, changes
 
-# Load Data
 try:
-    prices, changes = get_macro_data()
+    prices, changes = get_data()
 except:
-    st.error("Error fetching data. Yahoo Finance might be down.")
+    st.error("Errore di connessione con Yahoo Finance. Riprova più tardi.")
     st.stop()
 
-# --- 2. AUTOMATED LOGIC ENGINE ---
+# --- 2. TITOLO E STATUS ---
+st.title("⚡ MACRO SENTINEL | FTMO FOCUS")
+st.markdown("Analisi dei Fattori Chiave e Calendario News Ristretto (Rosse).")
 
-# US30 LOGIC
-# Bullish if: Yields (TNX) are DOWN and VIX is DOWN
-us30_score = 0
-if changes['^TNX'] < 0: us30_score += 1 # Yields dropping is good for stocks
-if prices['^TNX'] < 4.0: us30_score += 1 # Low absolute yields
-if changes['^VIX'] < 0: us30_score += 1 # Fear dropping
-if prices['^DJI'] > 34000: us30_score += 1 # Trend is up (simple filter)
+# --- 3. ANALISI US30 (DOW JONES) ---
+st.markdown("---")
+col1, col2 = st.columns(2)
 
-if us30_score >= 3:
-    us30_bias = "BULLISH 🚀"
-    us30_color = "bull"
-    us30_reason = "Yields are easing and Fear (VIX) is low. Risk-on environment."
-elif us30_score <= 1:
-    us30_bias = "BEARISH 🩸"
-    us30_color = "bear"
-    us30_reason = "Rising Yields or High Fear are pressuring equities."
-else:
-    us30_bias = "CHOPPY ⚠️"
-    us30_color = "neutral"
-    us30_reason = "Mixed signals. VIX and Yields are diverging."
+with col1:
+    st.markdown("### 🇺🇸 US30 (DOW JONES)")
+    
+    # Logica US30
+    us_score = 0
+    reasons = []
 
-# GBPJPY LOGIC
-# Bullish if: GBP is strong, JPY is weak (Carry Trade)
-# JPY=X in Yahoo is usually USD/JPY. If USDJPY is UP, JPY is WEAK.
-gj_score = 0
-if changes['GBPUSD=X'] > 0: gj_score += 1 # Strong Pound
-if changes['JPY=X'] > 0: gj_score += 1 # Weak Yen (USDJPY up)
-if prices['^VIX'] < 20: gj_score += 1 # Low volatility favors Carry Trade
+    # Fattore 1: Rendimenti (Yields)
+    tnx_val = prices['^TNX']
+    tnx_chg = changes['^TNX']
+    if tnx_chg < 0:
+        us_score += 1
+        reasons.append(f"<span class='factor-good'>✅ I rendimenti 10Y scendono ({tnx_chg:.2f}%):</span> Questo aiuta le azioni.")
+    else:
+        reasons.append(f"<span class='factor-bad'>❌ I rendimenti 10Y salgono (+{tnx_chg:.2f}%):</span> Pressione ribassista sull'US30.")
 
-if gj_score == 3:
-    gj_bias = "STRONG BUY 🟢"
-    gj_color = "bull"
-    gj_reason = "Perfect Storm: Strong GBP + Weak JPY + Low Risk."
-elif gj_score == 0:
-    gj_bias = "STRONG SELL 🔴"
-    gj_color = "bear"
-    gj_reason = "Risk Off: Yen buying is crushing the cross."
-else:
-    gj_bias = "RANGING ↔️"
-    gj_color = "neutral"
-    gj_reason = "Currencies are fighting. Wait for clear breakout."
+    # Fattore 2: Paura (VIX)
+    vix_val = prices['^VIX']
+    if vix_val < 20:
+        us_score += 1
+        reasons.append(f"<span class='factor-good'>✅ VIX sotto 20 ({vix_val:.2f}):</span> Ambiente 'Risk-On' tranquillo.")
+    else:
+        reasons.append(f"<span class='factor-bad'>❌ VIX alto ({vix_val:.2f}):</span> Troppa paura nel mercato.")
 
-# --- 3. DASHBOARD LAYOUT ---
+    # Verdetto Finale
+    if us_score == 2:
+        verdict = "BULLISH (RIALZISTA)"
+        color = "#00E676"
+    elif us_score == 0:
+        verdict = "BEARISH (RIBASSISTA)"
+        color = "#FF1744"
+    else:
+        verdict = "MIXED (INCERTO)"
+        color = "#FFCC00"
 
-st.title("⚡ MACRO AUTO-PILOT")
-st.markdown("Live Automated Analysis | No Checklists Required")
-
-# Top Row: The Verdicts
-c1, c2 = st.columns(2)
-
-with c1:
     st.markdown(f"""
-    <div class="metric-card">
-        <h3>🇺🇸 US30 (DOW)</h3>
-        <div class="{us30_color}">{us30_bias}</div>
-        <p style="font-size: 0.8rem; margin-top: 10px;">{us30_reason}</p>
+    <div class="main-card">
+        <div class="big-verdict" style="color: {color}">{verdict}</div>
         <hr style="border-color: #333;">
-        <div style="display:flex; justify-content:space-around;">
-            <div>
-                <span style="color:#888; font-size:0.8rem;">10Y YIELD</span><br>
-                {prices['^TNX']:.2f}% <span style="color:{'#ff4b4b' if changes['^TNX'] > 0 else '#00ff41'}">{changes['^TNX']:+.2f}%</span>
-            </div>
-            <div>
-                <span style="color:#888; font-size:0.8rem;">VIX (FEAR)</span><br>
-                {prices['^VIX']:.2f} <span style="color:{'#ff4b4b' if changes['^VIX'] > 0 else '#00ff41'}">{changes['^VIX']:+.2f}%</span>
-            </div>
-        </div>
+        <p><strong>FATTORI CHIAVE OGGI:</strong></p>
+        <ul>
+            {''.join([f"<li>{r}</li>" for r in reasons])}
+        </ul>
     </div>
     """, unsafe_allow_html=True)
 
-with c2:
+
+# --- 4. ANALISI GBPJPY (GUPPY) ---
+with col2:
+    st.markdown("### 🇬🇧/🇯🇵 GBPJPY (GUPPY)")
+    
+    # Logica GJ
+    gj_score = 0
+    gj_reasons = []
+
+    # Fattore 1: Forza Sterlina
+    gbp_chg = changes['GBPUSD=X']
+    if gbp_chg > 0:
+        gj_score += 1
+        gj_reasons.append(f"<span class='factor-good'>✅ La Sterlina è forte vs USD (+{gbp_chg:.2f}%).</span>")
+    else:
+        gj_reasons.append(f"<span class='factor-bad'>❌ La Sterlina è debole oggi ({gbp_chg:.2f}%).</span>")
+
+    # Fattore 2: Debolezza Yen (USDJPY sale = Yen debole)
+    jpy_chg = changes['JPY=X'] # Se positivo, USD sale su JPY, quindi JPY si indebolisce
+    if jpy_chg > 0:
+        gj_score += 1
+        gj_reasons.append(f"<span class='factor-good'>✅ Lo Yen si sta indebolendo:</span> Ottimo per il Carry Trade.")
+    else:
+        gj_reasons.append(f"<span class='factor-bad'>❌ Lo Yen si sta rafforzando (Safe Haven):</span> Pericoloso per i long.")
+
+    # Verdetto Finale
+    if gj_score == 2:
+        gj_verdict = "STRONG BUY"
+        gj_color = "#00E676"
+    elif gj_score == 0:
+        gj_verdict = "STRONG SELL"
+        gj_color = "#FF1744"
+    else:
+        gj_verdict = "RANGING (LATERALE)"
+        gj_color = "#FFCC00"
+
     st.markdown(f"""
-    <div class="metric-card">
-        <h3>🇬🇧/🇯🇵 GU (GBPJPY)</h3>
-        <div class="{gj_color}">{gj_bias}</div>
-        <p style="font-size: 0.8rem; margin-top: 10px;">{gj_reason}</p>
+    <div class="main-card">
+        <div class="big-verdict" style="color: {gj_color}">{gj_verdict}</div>
         <hr style="border-color: #333;">
-        <div style="display:flex; justify-content:space-around;">
-            <div>
-                <span style="color:#888; font-size:0.8rem;">GBP STRENGTH</span><br>
-                <span style="color:{'#00ff41' if changes['GBPUSD=X'] > 0 else '#ff4b4b'}">{changes['GBPUSD=X']:+.2f}%</span>
-            </div>
-            <div>
-                <span style="color:#888; font-size:0.8rem;">YEN WEAKNESS</span><br>
-                <span style="color:{'#00ff41' if changes['JPY=X'] > 0 else '#ff4b4b'}">{changes['JPY=X']:+.2f}%</span>
-            </div>
-        </div>
+        <p><strong>FATTORI CHIAVE OGGI:</strong></p>
+        <ul>
+            {''.join([f"<li>{r}</li>" for r in gj_reasons])}
+        </ul>
     </div>
     """, unsafe_allow_html=True)
 
-# Middle Row: Charts & News
-t1, t2 = st.tabs(["📊 LIVE CHARTS", "📅 FTMO RADAR"])
 
-with t1:
-    # Embedding TradingView Advanced Chart Widget
-    components.html("""
-    <div class="tradingview-widget-container" style="height:500px">
-      <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-      {
-      "autosize": true,
-      "symbol": "FOREXCOM:DJI",
-      "interval": "D",
-      "timezone": "Etc/UTC",
-      "theme": "dark",
-      "style": "1",
-      "locale": "en",
-      "enable_publishing": false,
-      "allow_symbol_change": true,
-      "calendar": false,
-      "support_host": "https://www.tradingview.com"
-    }
-      </script>
-    </div>
-    """, height=500)
+# --- 5. FTMO RADAR (NEWS ROSSE) ---
+st.markdown("### ⚠️ FTMO RED FOLDER RADAR (UK TIME)")
+st.info("Regola FTMO: Nessun trade 2 minuti prima/dopo queste notizie.")
 
-with t2:
-    st.warning("⚠️ FTMO RULE: Do not trade 2 minutes before/after Red Folder news.")
-    # Embedding TradingView Economic Calendar (Filtered for High Importance)
-    components.html("""
-    <div class="tradingview-widget-container" style="height:600px">
-      <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-      {
-      "width": "100%",
-      "height": "100%",
-      "colorTheme": "dark",
-      "isTransparent": false,
-      "locale": "en",
-      "importanceFilter": "1",
-      "currencyFilter": "USD,GBP,JPY"
-    }
-      </script>
-    </div>
-    """, height=600)
+components.html("""
+<div class="tradingview-widget-container">
+  <div class="tradingview-widget-container__widget"></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+  {
+  "width": "100%",
+  "height": "600",
+  "colorTheme": "dark",
+  "isTransparent": false,
+  "locale": "it",
+  "importanceFilter": "1",
+  "currencyFilter": "USD,GBP,JPY",
+  "timeZone": "Europe/London"
+}
+  </script>
+</div>
+""", height=600)

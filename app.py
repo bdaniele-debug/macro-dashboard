@@ -74,12 +74,11 @@ def get_data():
             else: res[t] = {"price": 0.0, "change": 0.0}
         except: res[t] = {"price": 0.0, "change": 0.0}
 
-    # Failsafe for Inflation Breakevens
     if res.get("^T5YIE", {}).get("price", 0) < 0.1:
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
     return res
 
-# --- SEPARATED SENTIMENT ENGINE ---
+# --- SMART SCORING NEWS ENGINE (v7.0) ---
 @st.cache_data(ttl=600)
 def get_news_analysis():
     feed_url = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" 
@@ -88,14 +87,52 @@ def get_news_analysis():
         analyzer = SentimentIntensityAnalyzer()
         us_news, gj_news = [], []
         
-        us_keys = ["fed", "powell", "inflation", "cpi", "treasury", "yield", "recession", "stocks", "dow", "s&p", "nasdaq", "gdp", "fomc"]
-        gj_keys = ["boe", "bailey", "uk", "britain", "pound", "gilt", "boj", "ueda", "japan", "yen", "jgb", "forex"]
-        block = ["bitcoin", "crypto", "nft", "disney", "movie", "sport"]
+        # --- KEYWORD WEIGHTING SYSTEM ---
+        # HIGH VALUE (+3 Points): Core Macro Drivers
+        macro_high = [
+            "fed", "powell", "inflation", "cpi", "ppi", "treasury", "yield", "fomc", 
+            "gdp", "recession", "payrolls", "jobs", "unemployment", "rates", 
+            "boe", "bailey", "bank of england", "boj", "ueda", "bank of japan"
+        ]
+        
+        # MEDIUM VALUE (+2 Points): Economic Indicators
+        macro_mid = [
+            "housing", "retail sales", "pmi", "manufacturing", "services", "confidence", 
+            "oil", "energy", "ecb", "lagarde", "china", "stimulus", "tax", "budget", 
+            "deficit", "liquidity", "credit", "banks", "jpmorgan", "goldman"
+        ]
+        
+        # ASSET SPECIFIC (+2 Points)
+        us_assets = ["stocks", "dow", "s&p", "nasdaq", "wall street", "dollar", "usd"]
+        gj_assets = ["uk", "britain", "pound", "sterling", "gilt", "japan", "yen", "jgb", "forex", "carry trade"]
+        
+        # NOISE (-1 Point): Penalize but don't ban (Context matters)
+        noise_words = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars", "marvel", "celebrity"]
 
         for entry in feed.entries:
             text = (entry.title + " " + entry.get('summary', '')).lower()
-            if any(b in text for b in block): continue
             
+            # --- CALCULATE RELEVANCE SCORE ---
+            relevance_score = 0
+            
+            # Add points for Macro High
+            for w in macro_high: 
+                if w in text: relevance_score += 3
+            
+            # Add points for Macro Mid
+            for w in macro_mid: 
+                if w in text: relevance_score += 2
+                
+            # Subtract points for Noise
+            for w in noise_words: 
+                if w in text: relevance_score -= 1
+            
+            # --- FILTER ---
+            # Threshold: Score must be > 1 to be considered a "Macro" article
+            if relevance_score < 2:
+                continue
+
+            # --- SENTIMENT ANALYSIS ---
             vs = analyzer.polarity_scores(entry.title)
             compound = vs['compound']
             item = {
@@ -105,11 +142,17 @@ def get_news_analysis():
                 "score": compound
             }
             
-            if any(k in text for k in us_keys): us_news.append(item)
-            if any(k in text for k in gj_keys): gj_news.append(item)
+            # --- BUCKETING ---
+            # Check for specific asset relevance
+            is_us = any(w in text for w in us_assets) or relevance_score >= 3 # If very high macro score, assume affects US
+            is_gj = any(w in text for w in gj_assets) or "global" in text
+            
+            if is_us: us_news.append(item)
+            if is_gj: gj_news.append(item)
         
         us_s = sum(n['score'] for n in us_news)/len(us_news) if us_news else 0
         gj_s = sum(n['score'] for n in gj_news)/len(gj_news) if gj_news else 0
+        
         return us_news, gj_news, us_s, gj_s
     except: return [], [], 0, 0
 
@@ -134,44 +177,39 @@ render_metric(c4, "DOLLAR (DXY)", "DX-Y.NYB", invert=True)
 
 st.markdown("<div style='margin-bottom: 25px'></div>", unsafe_allow_html=True)
 
-# --- ASSET CARDS (CALIBRATED) ---
+# --- ASSET CARDS ---
 col_us, col_gj = st.columns(2)
 
 # === US30 LOGIC ===
 with col_us:
     us_base = 50
-    us_log = [] # To store the "Why"
-    
-    # 1. MACRO (Yields/Inflation) - WEIGHT: 35%
+    # Factors
     inf_c = market.get('^T5YIE', {'change':0})['change']
     rate_c = market.get('^IRX', {'change':0})['change']
+    tech_c = market.get('XLK', {'change':0})['change']
+    util_c = market.get('XLU', {'change':0})['change']
+    vix_p = market.get('^VIX', {'price':0})['price']
+    
+    # 1. Macro (30%)
     macro_score = 0
     if inf_c > 0.5: macro_score -= 10
     elif inf_c < -0.5: macro_score += 10
     if rate_c > 1.0: macro_score -= 10
     elif rate_c < -1.0: macro_score += 10
-    us_log.append(f"Macro (Yields): {macro_score:+}")
     
-    # 2. FLOW (Sector Rotation) - WEIGHT: 45% (Higher Priority)
-    tech_c = market.get('XLK', {'change':0})['change']
-    util_c = market.get('XLU', {'change':0})['change']
+    # 2. Flow (40%)
     risk_on = tech_c > util_c
     flow_score = 25 if risk_on else -25
     flow_txt = "Tech > Utils (Risk On)" if risk_on else "Utils > Tech (Defensive)"
-    us_log.append(f"Flow ({flow_txt}): {flow_score:+}")
     
-    # 3. SENTIMENT (News/VIX) - WEIGHT: 20%
-    vix_p = market.get('^VIX', {'price':0})['price']
+    # 3. Sentiment (30%)
     sent_score = 0
     if vix_p > 20: sent_score -= 15
     elif vix_p < 16: sent_score += 10
     if us_sentiment > 0.05: sent_score += 5
     elif us_sentiment < -0.05: sent_score -= 5
-    us_log.append(f"Sentiment (VIX/News): {sent_score:+}")
     
-    # TOTAL
     us_final = max(0, min(100, us_base + macro_score + flow_score + sent_score))
-    
     u_col = "#00E676" if us_final > 60 else "#FF1744" if us_final < 40 else "#FFCC00"
     u_txt = "BULLISH" if us_final > 60 else "BEARISH" if us_final < 40 else "NEUTRAL"
 
@@ -185,23 +223,24 @@ with col_us:
 # === GBPJPY LOGIC ===
 with col_gj:
     gj_base = 50
-    
-    # 1. CURRENCY STRENGTH (40%)
+    # Factors
     gbp_c = market.get('GBPUSD=X', {'change':0})['change']
-    jpy_c = market.get('JPY=X', {'change':0})['change'] # Pos = Weak Yen
+    jpy_c = market.get('JPY=X', {'change':0})['change']
+    oil_c = market.get('CL=F', {'change':0})['change']
+    
+    # 1. FX Strength
     fx_score = 0
     if gbp_c > 0.1: fx_score += 15
     elif gbp_c < -0.1: fx_score -= 15
-    if jpy_c > 0.1: fx_score += 20 # Carry On
-    elif jpy_c < -0.1: fx_score -= 20 # Carry Unwind
+    if jpy_c > 0.1: fx_score += 20 
+    elif jpy_c < -0.1: fx_score -= 20
     
-    # 2. COMMODITIES (Oil) (30%)
-    oil_c = market.get('CL=F', {'change':0})['change']
+    # 2. Oil
     oil_score = 0
     if oil_c > 0.5: oil_score += 15
     elif oil_c < -0.5: oil_score -= 15
     
-    # 3. SENTIMENT (30%)
+    # 3. Sentiment
     gj_sent_score = 0
     if gj_sentiment > 0.05: gj_sent_score += 10
     elif gj_sentiment < -0.05: gj_sent_score -= 10
@@ -211,21 +250,19 @@ with col_gj:
     g_txt = "LONG (BUY)" if gj_final > 60 else "SHORT (SELL)" if gj_final < 40 else "RANGING"
 
     html_gj = f"""<div class="html-card"><div class="card-header"><span>💱 GBPJPY (The Beast)</span><span style="font-size:0.8rem; opacity:0.7">YIELD & OIL MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{g_col};">{g_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Score: {gj_final}/100</div></div><div class="ring-container" style="--ring-color:{g_col}; --ring-pct:{gj_final}%;"><div class="ring-inner">{gj_final}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;">
-    <div class="factor-row"><span style="color:#aaa;">Yen Strength (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Weak (Bullish)' if jpy_c > 0 else 'Strong (Bearish)'}</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Yen Weakness (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Weak (Bullish)' if jpy_c > 0 else 'Strong (Bearish)'}</span></div>
     <div class="factor-row"><span style="color:#aaa;">Oil Correlation (JP Imp)</span><span style="font-weight:bold; color:{'#00E676' if oil_score > 0 else '#FF1744'}">{oil_score:+d} pts</span></div>
     <div class="factor-row"><span style="color:#aaa;">UK/JP Sentiment</span><span style="font-weight:bold; color:{'#00E676' if gj_sent_score > 0 else '#FF1744'}">{gj_sent_score:+d} pts</span></div>
     </div></div></div>"""
     st.markdown(html_gj, unsafe_allow_html=True)
 
-# --- SEPARATED NEWS FEEDS ---
+# --- NEWS FEEDS ---
 c_news, c_cal = st.columns(2)
 
 with c_news:
-    # Combine US + GJ news for display but labeled
     all_news = us_news + gj_news
     news_html = ""
     if all_news:
-        # Sort by date usually done by source, but we take top few
         for item in all_news[:7]:
             try: dt = time.strftime("%d %b %H:%M", item['published_parsed'])
             except: dt = "Recent"
@@ -234,9 +271,9 @@ with c_news:
             tag_txt = "#FFF" if tag == "US" else "#000"
             
             news_html += f"""<div class="news-item"><a href="{item['link']}" target="_blank" class="news-link">{item['title']}</a><div class="news-meta-row"><span class="news-date">🕒 {dt}</span><div style="display:flex; gap:5px;"><span class="sentiment-badge" style="background:{tag_col}; color:{tag_txt};">{tag}</span><span class="sentiment-badge" style="background:{item['color']}; color:#000;">AI: {item['sentiment']}</span></div></div></div>"""
-    else: news_html = "<div style='color:#666; padding:10px;'>No relevant macro news found.</div>"
+    else: news_html = "<div style='color:#666; padding:10px;'>No high-impact macro news found (Low Relevance).</div>"
 
-    st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">SEPARATED LOGIC</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">SCORING SYSTEM V7</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
 
 with c_cal:
     today_str = datetime.datetime.now().strftime("%A, %d %B")

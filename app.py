@@ -78,77 +78,81 @@ def get_data():
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
     return res
 
-# --- SMART SCORING NEWS ENGINE (v7.0) ---
+# --- MULTI-FEED NEWS ENGINE (v8.0) ---
 @st.cache_data(ttl=600)
 def get_news_analysis():
-    feed_url = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" 
+    # LIST OF FEEDS: US Economy + International Finance
+    feed_urls = [
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", # US Economy
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362" # World Economy
+    ]
+    
     try:
-        feed = feedparser.parse(feed_url)
         analyzer = SentimentIntensityAnalyzer()
         us_news, gj_news = [], []
-        
-        # --- KEYWORD WEIGHTING SYSTEM ---
-        # HIGH VALUE (+3 Points): Core Macro Drivers
+        seen_titles = set() # To avoid duplicates between feeds
+
+        # --- KEYWORDS ---
         macro_high = [
             "fed", "powell", "inflation", "cpi", "ppi", "treasury", "yield", "fomc", 
             "gdp", "recession", "payrolls", "jobs", "unemployment", "rates", 
             "boe", "bailey", "bank of england", "boj", "ueda", "bank of japan"
         ]
-        
-        # MEDIUM VALUE (+2 Points): Economic Indicators
         macro_mid = [
             "housing", "retail sales", "pmi", "manufacturing", "services", "confidence", 
             "oil", "energy", "ecb", "lagarde", "china", "stimulus", "tax", "budget", 
-            "deficit", "liquidity", "credit", "banks", "jpmorgan", "goldman"
+            "deficit", "liquidity", "credit", "banks"
         ]
         
-        # ASSET SPECIFIC (+2 Points)
-        us_assets = ["stocks", "dow", "s&p", "nasdaq", "wall street", "dollar", "usd"]
-        gj_assets = ["uk", "britain", "pound", "sterling", "gilt", "japan", "yen", "jgb", "forex", "carry trade"]
+        # ASSETS
+        us_assets = ["stocks", "dow", "s&p", "nasdaq", "wall street", "dollar", "usd", "fed"]
+        gj_assets = ["uk", "britain", "pound", "sterling", "gilt", "japan", "yen", "jgb", "forex", "carry trade", "boe", "boj"]
         
-        # NOISE (-1 Point): Penalize but don't ban (Context matters)
         noise_words = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars", "marvel", "celebrity"]
 
-        for entry in feed.entries:
-            text = (entry.title + " " + entry.get('summary', '')).lower()
-            
-            # --- CALCULATE RELEVANCE SCORE ---
-            relevance_score = 0
-            
-            # Add points for Macro High
-            for w in macro_high: 
-                if w in text: relevance_score += 3
-            
-            # Add points for Macro Mid
-            for w in macro_mid: 
-                if w in text: relevance_score += 2
+        for url in feed_urls:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                if entry.title in seen_titles: continue
+                seen_titles.add(entry.title)
                 
-            # Subtract points for Noise
-            for w in noise_words: 
-                if w in text: relevance_score -= 1
-            
-            # --- FILTER ---
-            # Threshold: Score must be > 1 to be considered a "Macro" article
-            if relevance_score < 2:
-                continue
+                text = (entry.title + " " + entry.get('summary', '')).lower()
+                
+                # --- SCORING ---
+                relevance_score = 0
+                for w in macro_high: 
+                    if w in text: relevance_score += 3
+                for w in macro_mid: 
+                    if w in text: relevance_score += 2
+                for w in noise_words: 
+                    if w in text: relevance_score -= 10 # Hard penalize noise
+                
+                # Boost Score for GJ specific terms to ensure they pass
+                for w in gj_assets:
+                    if w in text: relevance_score += 1
 
-            # --- SENTIMENT ANALYSIS ---
-            vs = analyzer.polarity_scores(entry.title)
-            compound = vs['compound']
-            item = {
-                "title": entry.title, "link": entry.link, "published": entry.published,
-                "sentiment": "POS" if compound>=0.05 else "NEG" if compound<=-0.05 else "NEU",
-                "color": "#00E676" if compound>=0.05 else "#FF1744" if compound<=-0.05 else "#888",
-                "score": compound
-            }
-            
-            # --- BUCKETING ---
-            # Check for specific asset relevance
-            is_us = any(w in text for w in us_assets) or relevance_score >= 3 # If very high macro score, assume affects US
-            is_gj = any(w in text for w in gj_assets) or "global" in text
-            
-            if is_us: us_news.append(item)
-            if is_gj: gj_news.append(item)
+                if relevance_score < 2: continue # Strict Filter
+
+                # --- SENTIMENT ---
+                vs = analyzer.polarity_scores(entry.title)
+                compound = vs['compound']
+                item = {
+                    "title": entry.title, "link": entry.link, "published": entry.published,
+                    "sentiment": "POS" if compound>=0.05 else "NEG" if compound<=-0.05 else "NEU",
+                    "color": "#00E676" if compound>=0.05 else "#FF1744" if compound<=-0.05 else "#888",
+                    "score": compound
+                }
+                
+                # --- BUCKETING ---
+                is_us = any(w in text for w in us_assets)
+                is_gj = any(w in text for w in gj_assets)
+                
+                # Default to US if high score but no specific tag (Global Macro)
+                if not is_us and not is_gj and relevance_score >= 3:
+                    is_us = True 
+
+                if is_us: us_news.append(item)
+                if is_gj: gj_news.append(item)
         
         us_s = sum(n['score'] for n in us_news)/len(us_news) if us_news else 0
         gj_s = sum(n['score'] for n in gj_news)/len(gj_news) if gj_news else 0
@@ -183,26 +187,22 @@ col_us, col_gj = st.columns(2)
 # === US30 LOGIC ===
 with col_us:
     us_base = 50
-    # Factors
     inf_c = market.get('^T5YIE', {'change':0})['change']
     rate_c = market.get('^IRX', {'change':0})['change']
     tech_c = market.get('XLK', {'change':0})['change']
     util_c = market.get('XLU', {'change':0})['change']
     vix_p = market.get('^VIX', {'price':0})['price']
     
-    # 1. Macro (30%)
     macro_score = 0
     if inf_c > 0.5: macro_score -= 10
     elif inf_c < -0.5: macro_score += 10
     if rate_c > 1.0: macro_score -= 10
     elif rate_c < -1.0: macro_score += 10
     
-    # 2. Flow (40%)
     risk_on = tech_c > util_c
     flow_score = 25 if risk_on else -25
     flow_txt = "Tech > Utils (Risk On)" if risk_on else "Utils > Tech (Defensive)"
     
-    # 3. Sentiment (30%)
     sent_score = 0
     if vix_p > 20: sent_score -= 15
     elif vix_p < 16: sent_score += 10
@@ -223,24 +223,20 @@ with col_us:
 # === GBPJPY LOGIC ===
 with col_gj:
     gj_base = 50
-    # Factors
     gbp_c = market.get('GBPUSD=X', {'change':0})['change']
     jpy_c = market.get('JPY=X', {'change':0})['change']
     oil_c = market.get('CL=F', {'change':0})['change']
     
-    # 1. FX Strength
     fx_score = 0
     if gbp_c > 0.1: fx_score += 15
     elif gbp_c < -0.1: fx_score -= 15
     if jpy_c > 0.1: fx_score += 20 
     elif jpy_c < -0.1: fx_score -= 20
     
-    # 2. Oil
     oil_score = 0
     if oil_c > 0.5: oil_score += 15
     elif oil_c < -0.5: oil_score -= 15
     
-    # 3. Sentiment
     gj_sent_score = 0
     if gj_sentiment > 0.05: gj_sent_score += 10
     elif gj_sentiment < -0.05: gj_sent_score -= 10
@@ -250,7 +246,7 @@ with col_gj:
     g_txt = "LONG (BUY)" if gj_final > 60 else "SHORT (SELL)" if gj_final < 40 else "RANGING"
 
     html_gj = f"""<div class="html-card"><div class="card-header"><span>💱 GBPJPY (The Beast)</span><span style="font-size:0.8rem; opacity:0.7">YIELD & OIL MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{g_col};">{g_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Score: {gj_final}/100</div></div><div class="ring-container" style="--ring-color:{g_col}; --ring-pct:{gj_final}%;"><div class="ring-inner">{gj_final}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;">
-    <div class="factor-row"><span style="color:#aaa;">Yen Weakness (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Weak (Bullish)' if jpy_c > 0 else 'Strong (Bearish)'}</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Yen Strength (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Weak (Bullish)' if jpy_c > 0 else 'Strong (Bearish)'}</span></div>
     <div class="factor-row"><span style="color:#aaa;">Oil Correlation (JP Imp)</span><span style="font-weight:bold; color:{'#00E676' if oil_score > 0 else '#FF1744'}">{oil_score:+d} pts</span></div>
     <div class="factor-row"><span style="color:#aaa;">UK/JP Sentiment</span><span style="font-weight:bold; color:{'#00E676' if gj_sent_score > 0 else '#FF1744'}">{gj_sent_score:+d} pts</span></div>
     </div></div></div>"""
@@ -260,20 +256,29 @@ with col_gj:
 c_news, c_cal = st.columns(2)
 
 with c_news:
+    # Aggregazione Intelligente
+    # 1. Combine lists
     all_news = us_news + gj_news
+    
+    # 2. Sort by time (using published_parsed struct time)
+    # This handles the fact that we are merging two different RSS feeds
+    all_news.sort(key=lambda x: x['published'], reverse=True)
+
     news_html = ""
     if all_news:
-        for item in all_news[:7]:
-            try: dt = time.strftime("%d %b %H:%M", item['published_parsed'])
+        for item in all_news[:8]: # Show top 8 combined
+            try: dt = time.strftime("%d %b %H:%M", datetime.datetime.strptime(item['published'][:25], "%a, %d %b %Y %H:%M:%S").timetuple())
             except: dt = "Recent"
-            tag = "US" if item in us_news else "FX"
-            tag_col = "#2962FF" if tag == "US" else "#FFD700"
-            tag_txt = "#FFF" if tag == "US" else "#000"
+            
+            # Identify Tag
+            if item in us_news and item in gj_news: tag, tag_col, tag_txt = "GLOBAL", "#9C27B0", "#FFF"
+            elif item in gj_news: tag, tag_col, tag_txt = "FX/WRLD", "#FFD700", "#000"
+            else: tag, tag_col, tag_txt = "US", "#2962FF", "#FFF"
             
             news_html += f"""<div class="news-item"><a href="{item['link']}" target="_blank" class="news-link">{item['title']}</a><div class="news-meta-row"><span class="news-date">🕒 {dt}</span><div style="display:flex; gap:5px;"><span class="sentiment-badge" style="background:{tag_col}; color:{tag_txt};">{tag}</span><span class="sentiment-badge" style="background:{item['color']}; color:#000;">AI: {item['sentiment']}</span></div></div></div>"""
-    else: news_html = "<div style='color:#666; padding:10px;'>No high-impact macro news found (Low Relevance).</div>"
+    else: news_html = "<div style='color:#666; padding:10px;'>No relevant macro news found. (Filters are active)</div>"
 
-    st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">SCORING SYSTEM V7</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">US + WORLD AGGREGATOR</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
 
 with c_cal:
     today_str = datetime.datetime.now().strftime("%A, %d %B")

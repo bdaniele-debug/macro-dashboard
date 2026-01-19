@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import feedparser
 import datetime
+import time
 import streamlit.components.v1 as components
 
 # --- PAGE CONFIGURATION ---
@@ -13,20 +14,23 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS "BAUDASH" THEME (Black, Neon Blue, Rounded, GIANT) ---
+# --- AUTO-REFRESH (Every 5 Minutes) ---
+st.markdown("""
+    <meta http-equiv="refresh" content="300">
+    """, unsafe_allow_html=True)
+
+# --- CSS "BAUDASH" THEME ---
 st.markdown("""
 <style>
-    /* 1. GLOBAL BACKGROUND & FONT */
+    /* 1. GLOBAL SETTINGS */
     .stApp { 
-        background-color: #000000; /* Pitch Black */
+        background-color: #000000; 
         color: #FFFFFF; 
         font-family: 'Arial', sans-serif;
     }
-    
-    /* Remove default padding for a cleaner look */
-    .block-container { padding-top: 2rem; padding-bottom: 5rem; }
+    .block-container { padding-top: 1rem; padding-bottom: 5rem; }
 
-    /* 2. TITLE BAUDASH */
+    /* 2. MAIN TITLE */
     .baudash-title {
         font-size: 5rem;
         font-weight: 900;
@@ -34,21 +38,34 @@ st.markdown("""
         color: #FFFFFF;
         text-transform: uppercase;
         letter-spacing: 8px;
-        text-shadow: 0 0 20px #2962FF; /* Strong Neon Blue Glow */
+        text-shadow: 0 0 20px #2962FF; 
         margin-bottom: 40px;
     }
 
-    /* 3. CARDS (Rounded & Bombato) */
+    /* 3. MACRO CARD (Container) */
     .macro-card {
         background: #080808; 
-        border: 3px solid #2962FF; /* Thick Blue Border */
-        border-radius: 35px; /* Super Rounded */
+        border: 3px solid #2962FF; /* Blue Border */
+        border-radius: 35px; 
         padding: 30px;
         margin-bottom: 25px;
-        box-shadow: 0 0 25px rgba(41, 98, 255, 0.15); /* Blue Halo */
+        box-shadow: 0 0 25px rgba(41, 98, 255, 0.15); 
+        position: relative;
     }
 
-    /* 4. TOP METRICS (Rounded Boxes) */
+    /* 4. CARD HEADER (Inside the box) */
+    .card-header {
+        font-size: 1.8rem;
+        color: #2962FF; 
+        font-weight: 900;
+        text-transform: uppercase;
+        margin-bottom: 25px;
+        border-bottom: 2px solid #333;
+        padding-bottom: 15px;
+        letter-spacing: 1px;
+    }
+
+    /* 5. METRIC BOXES */
     .metric-box {
         background: #0a0a0a;
         border: 2px solid #ffffff; 
@@ -66,7 +83,7 @@ st.markdown("""
         margin-bottom: 10px;
     }
     .metric-val { 
-        font-size: 2.8rem; /* GIANT NUMBERS */
+        font-size: 2.8rem; 
         font-weight: 900; 
         color: #fff; 
     }
@@ -76,7 +93,7 @@ st.markdown("""
         margin-top: 5px;
     }
 
-    /* 5. ASSET TITLES */
+    /* 6. ASSET TITLES */
     h2 { 
         font-size: 2.5rem !important; 
         font-weight: 900; 
@@ -84,16 +101,8 @@ st.markdown("""
         text-shadow: 0 0 10px rgba(255,255,255,0.2);
         margin: 0; 
     }
-    
-    h3 {
-        font-size: 1.5rem !important;
-        color: #2962FF !important; 
-        font-weight: 800 !important;
-        text-transform: uppercase;
-        margin-bottom: 15px !important;
-    }
 
-    /* 6. RING CHART (Bigger) */
+    /* 7. RING CHART */
     .progress-ring {
         position: relative;
         width: 160px; 
@@ -121,22 +130,27 @@ st.markdown("""
         color: #fff;
     }
 
-    /* 7. NEWS LINKS (Large & Clear) */
+    /* 8. NEWS LINKS */
     .news-link { 
         font-size: 1.5rem !important; 
         color: #fff !important; 
         text-decoration: none; 
         font-weight: 700; 
         display: block;
-        margin-bottom: 10px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #333;
+        margin-bottom: 8px;
         transition: color 0.2s;
     }
     .news-link:hover { color: #2962FF !important; }
-    .news-time { font-size: 1.1rem; color: #888; margin-bottom: 20px;}
     
-    /* Key Factors Text */
+    .news-time { 
+        font-size: 1.1rem; 
+        color: #888; 
+        margin-bottom: 25px; 
+        display: block;
+        border-bottom: 1px solid #333;
+        padding-bottom: 10px;
+    }
+    
     .factor-text { font-size: 1.3rem; color: #e0e0e0; line-height: 1.7; margin-top: 15px; }
 
 </style>
@@ -166,7 +180,6 @@ def get_data():
 
 @st.cache_data(ttl=600)
 def get_news():
-    # Fetching Top 4 stories from CNBC Economy
     feed_url = "https://www.cnbc.com/id/10000664/device/rss/rss.html"
     feed = feedparser.parse(feed_url)
     return feed.entries[:4]
@@ -182,8 +195,6 @@ def big_metric(col, label, key, inv=False, is_pct=False):
     val_fmt = f"{d['price']:.2f}%" if is_pct else f"{d['price']:.2f}"
     chg = d['change']
     
-    # Logic: Green is Good, Red is Bad. 
-    # If 'inv' is True (like VIX or Yields), them going DOWN is GREEN.
     if inv:
         color = "#00E676" if chg < 0 else "#FF1744" 
     else:
@@ -224,7 +235,6 @@ with col_us:
     elif vix_p > 22: us_score -= 25
     us_score = max(0, min(100, us_score))
     
-    # Colors
     u_color = "#00E676" if us_score > 60 else "#FF1744" if us_score < 40 else "#FFCC00"
     u_bias = "BULLISH" if us_score > 60 else "BEARISH" if us_score < 40 else "NEUTRAL"
     
@@ -258,7 +268,6 @@ with col_gj:
     elif jpy_c < -0.1: gj_score -= 30
     gj_score = max(0, min(100, gj_score))
     
-    # Colors
     g_color = "#00E676" if gj_score > 60 else "#FF1744" if gj_score < 40 else "#FFCC00"
     g_bias = "BUY / LONG" if gj_score > 60 else "SELL / SHORT" if gj_score < 40 else "RANGING"
 
@@ -283,24 +292,37 @@ with col_gj:
 c_news, c_cal = st.columns([1, 1])
 
 with c_news:
-    st.markdown("<h3>📰 TOP MACRO HEADLINES</h3>", unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="macro-card">', unsafe_allow_html=True)
-        if news_data:
-            for item in news_data:
-                st.markdown(f"""
-                <a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
-                <div class="news-time">🕒 Published: {item.published[:16]}</div>
-                """, unsafe_allow_html=True)
-        else:
-            st.write("No news fetched currently.")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # 1. Start the Card
+    st.markdown('<div class="macro-card">', unsafe_allow_html=True)
+    # 2. Put the Header INSIDE the Card
+    st.markdown('<div class="card-header">📰 TOP MACRO HEADLINES</div>', unsafe_allow_html=True)
+    
+    if news_data:
+        for item in news_data:
+            # Format Date with Day Name (e.g., Monday, 19 Jan)
+            try:
+                dt_struct = item.published_parsed
+                # Format: Monday, 19 Jan • 14:30
+                nice_date = time.strftime("%A, %d %b • %H:%M", dt_struct)
+            except:
+                nice_date = item.published[:16]
+
+            st.markdown(f"""
+            <a href="{item.link}" target="_blank" class="news-link">{item.title}</a>
+            <span class="news-time">🕒 {nice_date}</span>
+            """, unsafe_allow_html=True)
+    else:
+        st.write("No news fetched currently.")
+    
+    # 3. Close the Card
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with c_cal:
-    st.markdown("<h3>📅 FTMO RED FOLDER (UK TIME)</h3>", unsafe_allow_html=True)
-    st.markdown('<div class="macro-card" style="padding: 10px; overflow: hidden;">', unsafe_allow_html=True)
+    # 1. Start the Card
+    st.markdown('<div class="macro-card" style="padding: 10px; padding-top: 30px;">', unsafe_allow_html=True)
+    # 2. Header INSIDE
+    st.markdown('<div class="card-header" style="margin-left: 20px;">📅 FTMO RED FOLDER (UK TIME)</div>', unsafe_allow_html=True)
     
-    # INCREASED HEIGHT TO 600px TO MAKE IT READABLE
     components.html("""
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>

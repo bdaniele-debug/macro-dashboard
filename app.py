@@ -16,14 +16,23 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- AUTO-REFRESH (5 Minutes) ---
-st.markdown("""<meta http-equiv="refresh" content="300">""", unsafe_allow_html=True)
+# --- HEADER & MANUAL REFRESH ---
+c_head_1, c_head_2 = st.columns([3, 1])
+with c_head_1:
+    st.markdown("## 🦅 MACRO ALPHA TERMINAL")
+with c_head_2:
+    if st.button("🔄 FORCE REFRESH DATA"):
+        st.cache_data.clear()
+        st.rerun()
+
+# --- AUTO-REFRESH (Now every 60 Seconds for News/Price agility) ---
+st.markdown("""<meta http-equiv="refresh" content="60">""", unsafe_allow_html=True)
 
 # --- CSS STYLING ---
 st.markdown("""
 <style>
     .stApp { background-color: #050505; color: #E0E0E0; font-family: 'Helvetica Neue', sans-serif; }
-    .block-container { padding-top: 2rem; padding-bottom: 3rem; }
+    .block-container { padding-top: 1rem; padding-bottom: 3rem; }
     
     /* CARDS */
     .metric-box { background: #0F0F0F; border: 1px solid #333; border-radius: 12px; padding: 15px; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -53,11 +62,14 @@ st.markdown("""
 
     /* IFRAME FIX */
     iframe[title="streamlit_components_v1.components.html"] { border: 2px solid #2962FF !important; border-top: none !important; border-bottom-left-radius: 15px !important; border-bottom-right-radius: 15px !important; background-color: #0a0a0a; margin-top: -5px; }
+    
+    /* Button Style */
+    div.stButton > button { width: 100%; background-color: #2962FF; color: white; border: none; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA ENGINE ---
-@st.cache_data(ttl=300) 
+# --- DATA ENGINE (TTL REDUCED TO 60 SECONDS) ---
+@st.cache_data(ttl=60) 
 def get_data():
     tickers = ["^TNX", "^IRX", "^T5YIE", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI", "XLK", "XLU", "CL=F"]
     try:
@@ -78,62 +90,43 @@ def get_data():
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
     return res
 
-# --- MULTI-FEED NEWS ENGINE (v8.0) ---
-@st.cache_data(ttl=600)
+# --- NEWS ENGINE (TTL REDUCED TO 60 SECONDS) ---
+@st.cache_data(ttl=60)
 def get_news_analysis():
-    # LIST OF FEEDS: US Economy + International Finance
     feed_urls = [
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", # US Economy
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362" # World Economy
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", 
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362"
     ]
-    
     try:
         analyzer = SentimentIntensityAnalyzer()
         us_news, gj_news = [], []
-        seen_titles = set() # To avoid duplicates between feeds
+        seen_titles = set()
 
-        # --- KEYWORDS ---
-        macro_high = [
-            "fed", "powell", "inflation", "cpi", "ppi", "treasury", "yield", "fomc", 
-            "gdp", "recession", "payrolls", "jobs", "unemployment", "rates", 
-            "boe", "bailey", "bank of england", "boj", "ueda", "bank of japan"
-        ]
-        macro_mid = [
-            "housing", "retail sales", "pmi", "manufacturing", "services", "confidence", 
-            "oil", "energy", "ecb", "lagarde", "china", "stimulus", "tax", "budget", 
-            "deficit", "liquidity", "credit", "banks"
-        ]
-        
-        # ASSETS
+        macro_high = ["fed", "powell", "inflation", "cpi", "ppi", "treasury", "yield", "fomc", "gdp", "recession", "payrolls", "jobs", "unemployment", "rates", "boe", "bailey", "bank of england", "boj", "ueda", "bank of japan"]
+        macro_mid = ["housing", "retail sales", "pmi", "manufacturing", "services", "confidence", "oil", "energy", "ecb", "lagarde", "china", "stimulus", "tax", "budget", "deficit", "liquidity", "credit", "banks"]
         us_assets = ["stocks", "dow", "s&p", "nasdaq", "wall street", "dollar", "usd", "fed"]
         gj_assets = ["uk", "britain", "pound", "sterling", "gilt", "japan", "yen", "jgb", "forex", "carry trade", "boe", "boj"]
-        
-        noise_words = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars", "marvel", "celebrity"]
+        noise = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars", "marvel", "celebrity"]
 
         for url in feed_urls:
             feed = feedparser.parse(url)
             for entry in feed.entries:
                 if entry.title in seen_titles: continue
                 seen_titles.add(entry.title)
-                
                 text = (entry.title + " " + entry.get('summary', '')).lower()
                 
-                # --- SCORING ---
-                relevance_score = 0
+                relevance = 0
                 for w in macro_high: 
-                    if w in text: relevance_score += 3
+                    if w in text: relevance += 3
                 for w in macro_mid: 
-                    if w in text: relevance_score += 2
-                for w in noise_words: 
-                    if w in text: relevance_score -= 10 # Hard penalize noise
-                
-                # Boost Score for GJ specific terms to ensure they pass
+                    if w in text: relevance += 2
+                for w in noise: 
+                    if w in text: relevance -= 10
                 for w in gj_assets:
-                    if w in text: relevance_score += 1
+                    if w in text: relevance += 1 # Boost GJ visibility
 
-                if relevance_score < 2: continue # Strict Filter
+                if relevance < 2: continue
 
-                # --- SENTIMENT ---
                 vs = analyzer.polarity_scores(entry.title)
                 compound = vs['compound']
                 item = {
@@ -143,13 +136,9 @@ def get_news_analysis():
                     "score": compound
                 }
                 
-                # --- BUCKETING ---
                 is_us = any(w in text for w in us_assets)
                 is_gj = any(w in text for w in gj_assets)
-                
-                # Default to US if high score but no specific tag (Global Macro)
-                if not is_us and not is_gj and relevance_score >= 3:
-                    is_us = True 
+                if not is_us and not is_gj and relevance >= 3: is_us = True 
 
                 if is_us: us_news.append(item)
                 if is_gj: gj_news.append(item)
@@ -256,21 +245,14 @@ with col_gj:
 c_news, c_cal = st.columns(2)
 
 with c_news:
-    # Aggregazione Intelligente
-    # 1. Combine lists
     all_news = us_news + gj_news
-    
-    # 2. Sort by time (using published_parsed struct time)
-    # This handles the fact that we are merging two different RSS feeds
     all_news.sort(key=lambda x: x['published'], reverse=True)
 
     news_html = ""
     if all_news:
-        for item in all_news[:8]: # Show top 8 combined
+        for item in all_news[:8]:
             try: dt = time.strftime("%d %b %H:%M", datetime.datetime.strptime(item['published'][:25], "%a, %d %b %Y %H:%M:%S").timetuple())
             except: dt = "Recent"
-            
-            # Identify Tag
             if item in us_news and item in gj_news: tag, tag_col, tag_txt = "GLOBAL", "#9C27B0", "#FFF"
             elif item in gj_news: tag, tag_col, tag_txt = "FX/WRLD", "#FFD700", "#000"
             else: tag, tag_col, tag_txt = "US", "#2962FF", "#FFF"

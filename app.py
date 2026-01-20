@@ -15,11 +15,24 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS STYLING (DARK MODE & COMPACT) ---
+# --- CSS: HIDE WHITE BAR & MAXIMIZE SPACE ---
 st.markdown("""
 <style>
+    /* 1. FORCE DARK BACKGROUND */
     .stApp { background-color: #050505; color: #E0E0E0; font-family: 'Helvetica Neue', sans-serif; }
-    .block-container { padding-top: 1rem; padding-bottom: 3rem; }
+    
+    /* 2. HIDE STREAMLIT HEADER & FOOTER (The White Bar) */
+    header[data-testid="stHeader"] { visibility: hidden; height: 0%; }
+    div[data-testid="stToolbar"] { visibility: hidden; height: 0%; }
+    footer { visibility: hidden; }
+    div[data-testid="stDecoration"] { visibility: hidden; height: 0%; }
+    
+    /* 3. PUSH CONTENT UP (Remove top padding) */
+    .block-container { 
+        padding-top: 0rem !important; 
+        padding-bottom: 1rem !important; 
+        margin-top: -20px;
+    }
     
     /* CARDS */
     .metric-box { background: #0F0F0F; border: 1px solid #333; border-radius: 12px; padding: 15px; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -47,36 +60,24 @@ st.markdown("""
     .ring-container { position: relative; width: 90px; height: 90px; border-radius: 50%; background: conic-gradient(var(--ring-color) var(--ring-pct), #222 0); display: flex; align-items: center; justify-content: center; }
     .ring-inner { width: 74px; height: 74px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: white; font-size: 1.1rem; }
 
-    /* INVESTING.COM WIDGET FIXES */
-    iframe { width: 100% !important; border: none !important; }
-    
-    /* ACTION BUTTONS */
-    .ff-button {
-        display: inline-block;
-        background-color: #FF5722; /* ForexFactory Orange */
-        color: white;
-        padding: 8px 16px;
-        text-decoration: none;
-        border-radius: 5px;
-        font-weight: bold;
-        text-align: center;
-        width: 100%;
-        margin-bottom: 10px;
-    }
+    /* BUTTONS */
+    .ff-button { display: inline-block; background-color: #FF5722; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; width: 100%; margin-bottom: 10px; font-size:0.8rem; }
     .ff-button:hover { background-color: #E64A19; color: white; }
+    div.stButton > button { width: 100%; background-color: #2962FF; color: white; border: none; font-weight: bold; font-size:0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- HEADER & CONTROLS ---
-c_head_1, c_head_2, c_head_3 = st.columns([3, 1, 1])
+# Using columns to create a compact header row
+c_head_1, c_head_2, c_head_3 = st.columns([4, 1, 1])
 with c_head_1:
-    st.markdown("## 🦅 MACRO ALPHA TERMINAL")
+    st.markdown("### 🦅 MACRO ALPHA TERMINAL")
 with c_head_2:
-    if st.button("🔄 REFRESH DATA"):
+    if st.button("🔄 REFRESH"):
         st.cache_data.clear()
         st.rerun()
 with c_head_3:
-    st.markdown('<a href="https://www.forexfactory.com/calendar" target="_blank" class="ff-button">OPEN FOREX FACTORY</a>', unsafe_allow_html=True)
+    st.markdown('<a href="https://www.forexfactory.com/calendar" target="_blank" class="ff-button">FOREX FACTORY</a>', unsafe_allow_html=True)
 
 # --- DATA ENGINE (60s Cache) ---
 @st.cache_data(ttl=60) 
@@ -112,11 +113,10 @@ def get_news_analysis():
         us_news, gj_news = [], []
         seen_titles = set()
 
-        macro_high = ["fed", "powell", "inflation", "cpi", "ppi", "treasury", "yield", "fomc", "gdp", "recession", "payrolls", "jobs", "unemployment", "rates", "boe", "bailey", "bank of england", "boj", "ueda", "bank of japan"]
-        macro_mid = ["housing", "retail sales", "pmi", "manufacturing", "services", "confidence", "oil", "energy", "ecb", "lagarde", "china", "stimulus", "tax", "budget", "deficit", "liquidity", "credit", "banks"]
-        us_assets = ["stocks", "dow", "s&p", "nasdaq", "wall street", "dollar", "usd", "fed"]
-        gj_assets = ["uk", "britain", "pound", "sterling", "gilt", "japan", "yen", "jgb", "forex", "carry trade", "boe", "boj"]
-        noise = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars", "marvel", "celebrity"]
+        macro_high = ["fed", "powell", "inflation", "cpi", "treasury", "yield", "fomc", "gdp", "recession", "payrolls", "jobs", "rates", "boe", "bailey", "boj", "ueda"]
+        us_assets = ["stocks", "dow", "s&p", "nasdaq", "dollar", "usd", "fed"]
+        gj_assets = ["uk", "britain", "pound", "japan", "yen", "jgb", "forex", "carry trade"]
+        noise = ["bitcoin", "crypto", "nft", "disney", "movie", "sport", "star wars"]
 
         for url in feed_urls:
             feed = feedparser.parse(url)
@@ -128,14 +128,12 @@ def get_news_analysis():
                 relevance = 0
                 for w in macro_high: 
                     if w in text: relevance += 3
-                for w in macro_mid: 
-                    if w in text: relevance += 2
                 for w in noise: 
                     if w in text: relevance -= 10
                 for w in gj_assets:
                     if w in text: relevance += 1
 
-                if relevance < 2: continue
+                if relevance < 1: continue
 
                 vs = analyzer.polarity_scores(entry.title)
                 compound = vs['compound']
@@ -148,7 +146,7 @@ def get_news_analysis():
                 
                 is_us = any(w in text for w in us_assets)
                 is_gj = any(w in text for w in gj_assets)
-                if not is_us and not is_gj and relevance >= 3: is_us = True 
+                if not is_us and not is_gj and relevance >= 2: is_us = True 
 
                 if is_us: us_news.append(item)
                 if is_gj: gj_news.append(item)
@@ -248,7 +246,7 @@ with col_gj:
     </div></div></div>"""
     st.markdown(html_gj, unsafe_allow_html=True)
 
-# --- NEWS & INVESTING.COM CALENDAR ---
+# --- NEWS & TRADINGVIEW CALENDAR ---
 c_news, c_cal = st.columns(2)
 
 with c_news:
@@ -268,13 +266,23 @@ with c_news:
     st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">US + WORLD AGGREGATOR</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
 
 with c_cal:
-    # INVESTING.COM WIDGET (Usually Faster Updates)
-    # Note: Styles are hard to customize perfectly dark without ads, but data is reliable.
     st.markdown(f"""<div style="border: 2px solid #2962FF; border-bottom: none; border-top-left-radius: 15px; border-top-right-radius: 15px; background-color: #0a0a0a; margin-bottom: 0px;"><div class="card-header" style="border-bottom: 1px solid #2962FF;"><span>📅 Economic Radar</span><span style="font-size:0.8rem; background:#2962FF; padding:2px 8px; border-radius:4px;">LIVE DATA</span></div></div>""", unsafe_allow_html=True)
     
-    # We use a container to crop the Investing.com widget slightly to make it look cleaner
+    # TRADINGVIEW WIDGET (REVERTED TO THE WORKING ONE)
     components.html("""
-    <div style="background-color:#000; overflow:hidden; height:535px;">
-        <iframe src="https://ssleconomiccalendar.investing.com?calType=day&timeZone=8&lang=1&importance=2,3" width="100%" height="600" frameborder="0" allowtransparency="true" marginwidth="0" marginheight="0"></iframe>
+    <div class="tradingview-widget-container" style="background-color: #0a0a0a;">
+      <div class="tradingview-widget-container__widget"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+      {
+      "width": "100%",
+      "height": "535",
+      "colorTheme": "dark",
+      "isTransparent": true,
+      "locale": "en",
+      "importanceFilter": "1",
+      "currencyFilter": "USD,GBP,JPY",
+      "timeZone": "Europe/London"
+    }
+      </script>
     </div>
     """, height=535)

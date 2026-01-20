@@ -5,30 +5,17 @@ import feedparser
 import datetime
 import time
 import streamlit.components.v1 as components
-import textwrap
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Macro Alpha Terminal",
     layout="wide",
-    page_icon="🦅",
+    page_icon="⚡",
     initial_sidebar_state="collapsed"
 )
 
-# --- HEADER & MANUAL REFRESH ---
-c_head_1, c_head_2 = st.columns([3, 1])
-with c_head_1:
-    st.markdown("## 🦅 MACRO ALPHA TERMINAL")
-with c_head_2:
-    if st.button("🔄 FORCE REFRESH DATA"):
-        st.cache_data.clear()
-        st.rerun()
-
-# --- AUTO-REFRESH (Now every 60 Seconds for News/Price agility) ---
-st.markdown("""<meta http-equiv="refresh" content="60">""", unsafe_allow_html=True)
-
-# --- CSS STYLING ---
+# --- CSS STYLING (DARK MODE & COMPACT) ---
 st.markdown("""
 <style>
     .stApp { background-color: #050505; color: #E0E0E0; font-family: 'Helvetica Neue', sans-serif; }
@@ -43,7 +30,7 @@ st.markdown("""
     .card-header { background: rgba(41, 98, 255, 0.15); padding: 12px 20px; border-bottom: 1px solid #2962FF; font-weight: 900; font-size: 1rem; color: #fff; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
     .card-body { padding: 20px; }
 
-    /* NEWS & TAGS */
+    /* NEWS STYLES */
     .news-item { padding: 10px 0; border-bottom: 1px solid #222; display: flex; flex-direction: column; gap: 4px; }
     .news-link { color: #fff; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
     .news-link:hover { color: #2962FF; }
@@ -51,24 +38,47 @@ st.markdown("""
     .news-date { font-size: 0.75rem; color: #666; }
     .sentiment-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 800; text-transform: uppercase; }
 
-    /* FACTORS TABLE */
+    /* FACTORS */
     .factor-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #333; font-size: 0.85rem; }
     .factor-row:last-child { border-bottom: none; }
     .score-pill { padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 0.8rem; }
 
-    /* RING CHART */
+    /* RINGS */
     .ring-container { position: relative; width: 90px; height: 90px; border-radius: 50%; background: conic-gradient(var(--ring-color) var(--ring-pct), #222 0); display: flex; align-items: center; justify-content: center; }
     .ring-inner { width: 74px; height: 74px; background: #0a0a0a; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: white; font-size: 1.1rem; }
 
-    /* IFRAME FIX */
-    iframe[title="streamlit_components_v1.components.html"] { border: 2px solid #2962FF !important; border-top: none !important; border-bottom-left-radius: 15px !important; border-bottom-right-radius: 15px !important; background-color: #0a0a0a; margin-top: -5px; }
+    /* INVESTING.COM WIDGET FIXES */
+    iframe { width: 100% !important; border: none !important; }
     
-    /* Button Style */
-    div.stButton > button { width: 100%; background-color: #2962FF; color: white; border: none; font-weight: bold; }
+    /* ACTION BUTTONS */
+    .ff-button {
+        display: inline-block;
+        background-color: #FF5722; /* ForexFactory Orange */
+        color: white;
+        padding: 8px 16px;
+        text-decoration: none;
+        border-radius: 5px;
+        font-weight: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    .ff-button:hover { background-color: #E64A19; color: white; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA ENGINE (TTL REDUCED TO 60 SECONDS) ---
+# --- HEADER & CONTROLS ---
+c_head_1, c_head_2, c_head_3 = st.columns([3, 1, 1])
+with c_head_1:
+    st.markdown("## 🦅 MACRO ALPHA TERMINAL")
+with c_head_2:
+    if st.button("🔄 REFRESH DATA"):
+        st.cache_data.clear()
+        st.rerun()
+with c_head_3:
+    st.markdown('<a href="https://www.forexfactory.com/calendar" target="_blank" class="ff-button">OPEN FOREX FACTORY</a>', unsafe_allow_html=True)
+
+# --- DATA ENGINE (60s Cache) ---
 @st.cache_data(ttl=60) 
 def get_data():
     tickers = ["^TNX", "^IRX", "^T5YIE", "^VIX", "DX-Y.NYB", "GBPUSD=X", "JPY=X", "^DJI", "XLK", "XLU", "CL=F"]
@@ -90,7 +100,7 @@ def get_data():
         res["^T5YIE"] = res.get("^TNX", {"price": 0.0, "change": 0.0})
     return res
 
-# --- NEWS ENGINE (TTL REDUCED TO 60 SECONDS) ---
+# --- NEWS ENGINE ---
 @st.cache_data(ttl=60)
 def get_news_analysis():
     feed_urls = [
@@ -123,7 +133,7 @@ def get_news_analysis():
                 for w in noise: 
                     if w in text: relevance -= 10
                 for w in gj_assets:
-                    if w in text: relevance += 1 # Boost GJ visibility
+                    if w in text: relevance += 1
 
                 if relevance < 2: continue
 
@@ -145,14 +155,13 @@ def get_news_analysis():
         
         us_s = sum(n['score'] for n in us_news)/len(us_news) if us_news else 0
         gj_s = sum(n['score'] for n in gj_news)/len(gj_news) if gj_news else 0
-        
         return us_news, gj_news, us_s, gj_s
     except: return [], [], 0, 0
 
 market = get_data()
 us_news, gj_news, us_sentiment, gj_sentiment = get_news_analysis()
 
-# --- METRICS ROW ---
+# --- METRICS ---
 c1, c2, c3, c4 = st.columns(4)
 def render_metric(col, title, key, invert=False, is_pct=False):
     d = market.get(key, {'price':0.0, 'change':0.0})
@@ -170,10 +179,9 @@ render_metric(c4, "DOLLAR (DXY)", "DX-Y.NYB", invert=True)
 
 st.markdown("<div style='margin-bottom: 25px'></div>", unsafe_allow_html=True)
 
-# --- ASSET CARDS ---
+# --- ASSETS ---
 col_us, col_gj = st.columns(2)
 
-# === US30 LOGIC ===
 with col_us:
     us_base = 50
     inf_c = market.get('^T5YIE', {'change':0})['change']
@@ -203,13 +211,12 @@ with col_us:
     u_txt = "BULLISH" if us_final > 60 else "BEARISH" if us_final < 40 else "NEUTRAL"
 
     html_us = f"""<div class="html-card"><div class="card-header"><span>🇺🇸 US30 (Dow Jones)</span><span style="font-size:0.8rem; opacity:0.7">SMART MONEY MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{u_col};">{u_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Score: {us_final}/100</div></div><div class="ring-container" style="--ring-color:{u_col}; --ring-pct:{us_final}%;"><div class="ring-inner">{us_final}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;">
-    <div class="factor-row"><span style="color:#aaa;">Sector Flow (Smart Money)</span><span class="score-pill" style="background:{'rgba(0,230,118,0.2)' if risk_on else 'rgba(255,23,68,0.2)'}; color:{'#00E676' if risk_on else '#FF1744'}">{flow_txt}</span></div>
-    <div class="factor-row"><span style="color:#aaa;">Macro Drag (Yields/Fed)</span><span style="font-weight:bold; color:{'#FF1744' if macro_score < 0 else '#00E676'}">{macro_score:+d} pts</span></div>
-    <div class="factor-row"><span style="color:#aaa;">Sentiment Impact</span><span style="font-weight:bold; color:{'#FF1744' if sent_score < 0 else '#00E676'}">{sent_score:+d} pts</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Sector Flow</span><span class="score-pill" style="background:{'rgba(0,230,118,0.2)' if risk_on else 'rgba(255,23,68,0.2)'}; color:{'#00E676' if risk_on else '#FF1744'}">{flow_txt}</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Macro Drag</span><span style="font-weight:bold; color:{'#FF1744' if macro_score < 0 else '#00E676'}">{macro_score:+d} pts</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Sentiment</span><span style="font-weight:bold; color:{'#FF1744' if sent_score < 0 else '#00E676'}">{sent_score:+d} pts</span></div>
     </div></div></div>"""
     st.markdown(html_us, unsafe_allow_html=True)
 
-# === GBPJPY LOGIC ===
 with col_gj:
     gj_base = 50
     gbp_c = market.get('GBPUSD=X', {'change':0})['change']
@@ -235,34 +242,39 @@ with col_gj:
     g_txt = "LONG (BUY)" if gj_final > 60 else "SHORT (SELL)" if gj_final < 40 else "RANGING"
 
     html_gj = f"""<div class="html-card"><div class="card-header"><span>💱 GBPJPY (The Beast)</span><span style="font-size:0.8rem; opacity:0.7">YIELD & OIL MODEL</span></div><div class="card-body"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><div><div style="font-size:2rem; font-weight:900; color:{g_col};">{g_txt}</div><div style="color:#666; font-size:0.8rem;">Algo Score: {gj_final}/100</div></div><div class="ring-container" style="--ring-color:{g_col}; --ring-pct:{gj_final}%;"><div class="ring-inner">{gj_final}%</div></div></div><div style="background:#111; padding:15px; border-radius:8px;">
-    <div class="factor-row"><span style="color:#aaa;">Yen Strength (Carry)</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{'Weak (Bullish)' if jpy_c > 0 else 'Strong (Bearish)'}</span></div>
-    <div class="factor-row"><span style="color:#aaa;">Oil Correlation (JP Imp)</span><span style="font-weight:bold; color:{'#00E676' if oil_score > 0 else '#FF1744'}">{oil_score:+d} pts</span></div>
-    <div class="factor-row"><span style="color:#aaa;">UK/JP Sentiment</span><span style="font-weight:bold; color:{'#00E676' if gj_sent_score > 0 else '#FF1744'}">{gj_sent_score:+d} pts</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Yen Weakness</span><span style="font-weight:bold; color:{'#00E676' if jpy_c > 0 else '#FF1744'}">{jpy_c:+.2f}%</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Oil Correlation</span><span style="font-weight:bold; color:{'#00E676' if oil_score > 0 else '#FF1744'}">{oil_score:+d} pts</span></div>
+    <div class="factor-row"><span style="color:#aaa;">Sentiment</span><span style="font-weight:bold; color:{'#00E676' if gj_sent_score > 0 else '#FF1744'}">{gj_sent_score:+d} pts</span></div>
     </div></div></div>"""
     st.markdown(html_gj, unsafe_allow_html=True)
 
-# --- NEWS FEEDS ---
+# --- NEWS & INVESTING.COM CALENDAR ---
 c_news, c_cal = st.columns(2)
 
 with c_news:
     all_news = us_news + gj_news
     all_news.sort(key=lambda x: x['published'], reverse=True)
-
     news_html = ""
     if all_news:
-        for item in all_news[:8]:
+        for item in all_news[:7]:
             try: dt = time.strftime("%d %b %H:%M", datetime.datetime.strptime(item['published'][:25], "%a, %d %b %Y %H:%M:%S").timetuple())
             except: dt = "Recent"
-            if item in us_news and item in gj_news: tag, tag_col, tag_txt = "GLOBAL", "#9C27B0", "#FFF"
-            elif item in gj_news: tag, tag_col, tag_txt = "FX/WRLD", "#FFD700", "#000"
-            else: tag, tag_col, tag_txt = "US", "#2962FF", "#FFF"
-            
+            tag = "US" if item in us_news else "FX"
+            tag_col = "#2962FF" if tag == "US" else "#FFD700"
+            tag_txt = "#FFF" if tag == "US" else "#000"
             news_html += f"""<div class="news-item"><a href="{item['link']}" target="_blank" class="news-link">{item['title']}</a><div class="news-meta-row"><span class="news-date">🕒 {dt}</span><div style="display:flex; gap:5px;"><span class="sentiment-badge" style="background:{tag_col}; color:{tag_txt};">{tag}</span><span class="sentiment-badge" style="background:{item['color']}; color:#000;">AI: {item['sentiment']}</span></div></div></div>"""
-    else: news_html = "<div style='color:#666; padding:10px;'>No relevant macro news found. (Filters are active)</div>"
+    else: news_html = "<div style='color:#666; padding:10px;'>No relevant macro news found. (Filters active)</div>"
 
     st.markdown(f"""<div class="html-card" style="height: 600px;"><div class="card-header"><span>📰 Smart Macro Wire</span><span style="font-size:0.8rem; opacity:0.7">US + WORLD AGGREGATOR</span></div><div class="card-body" style="overflow-y:auto; height:540px;">{news_html}</div></div>""", unsafe_allow_html=True)
 
 with c_cal:
-    today_str = datetime.datetime.now().strftime("%A, %d %B")
-    st.markdown(f"""<div style="border: 2px solid #2962FF; border-bottom: none; border-top-left-radius: 15px; border-top-right-radius: 15px; background-color: #0a0a0a; margin-bottom: 0px;"><div class="card-header" style="border-bottom: 1px solid #2962FF;"><span>📅 FTMO Radar</span><span style="font-size:0.8rem; background:#2962FF; padding:2px 8px; border-radius:4px;">{today_str}</span></div></div>""", unsafe_allow_html=True)
-    components.html("""<div class="tradingview-widget-container" style="background-color: #0a0a0a;"><div class="tradingview-widget-container__widget"></div><script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>{"width": "100%","height": "535","colorTheme": "dark","isTransparent": true,"locale": "en","importanceFilter": "1","currencyFilter": "USD,GBP,JPY","timeZone": "Europe/London"}</script></div>""", height=535)
+    # INVESTING.COM WIDGET (Usually Faster Updates)
+    # Note: Styles are hard to customize perfectly dark without ads, but data is reliable.
+    st.markdown(f"""<div style="border: 2px solid #2962FF; border-bottom: none; border-top-left-radius: 15px; border-top-right-radius: 15px; background-color: #0a0a0a; margin-bottom: 0px;"><div class="card-header" style="border-bottom: 1px solid #2962FF;"><span>📅 Economic Radar</span><span style="font-size:0.8rem; background:#2962FF; padding:2px 8px; border-radius:4px;">LIVE DATA</span></div></div>""", unsafe_allow_html=True)
+    
+    # We use a container to crop the Investing.com widget slightly to make it look cleaner
+    components.html("""
+    <div style="background-color:#000; overflow:hidden; height:535px;">
+        <iframe src="https://ssleconomiccalendar.investing.com?calType=day&timeZone=8&lang=1&importance=2,3" width="100%" height="600" frameborder="0" allowtransparency="true" marginwidth="0" marginheight="0"></iframe>
+    </div>
+    """, height=535)
